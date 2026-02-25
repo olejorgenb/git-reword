@@ -1,0 +1,39 @@
+<commit sha=7dcfdad1afb39b697a8632f0c450c555abe7d5b6>
+    test-env-cli: refactor the CLI interface
+
+    The previous subcommand-based interface made it difficult to perform
+    multiple operations in a single invocation. Users needed to run the
+    script multiple times to sync different data types.
+
+    Replaced argparse subcommands with a cleaner resource-oriented design:
+    - 'list' and 'show' commands for environment information
+    - 'sync' command that accepts comma-separated data types (datamodel,tags,cdb)
+    - 'push-code' command for deploying code
+    - Unified time range options (--from/--to) that work across all data types
+    - Added support for duration syntax (e.g., '2h', '3d', '10m')
+    - Made tag copying non-interactive by default
+    - Fixed CentaurTime import issues by using cdt module functions
+
+    ai-agent: Claude 4 Opus
+    autonomy: med
+</commit>
+
+<commit sha=a0747cfb245789a748922cd9f354a9ad2ce6d6d8>
+    test-env-cli: Refactor time range parsing and improve defaults
+</commit>
+
+<commit sha=e7ae1a5556aebe836309f3c75e4d2a3966632b78>
+    agent-todo
+</commit>
+
+<commit sha=a7405c21f44c3eb306a21c790486452531843309>
+    fixup! test-env-cli: Refactor time range parsing and improve defaults
+</commit>
+
+<commit sha=8022c8ee348509d0e1a5893671a209f439a7aac5>
+    Improve environment sync with clearer plant handling
+
+    This refactors how plants are handled during environment syncs. It adds
+    better validation of test environment plants, improves error messaging,
+    and consolidates plant selection logic into a dedicated helper function.
+</commit>
