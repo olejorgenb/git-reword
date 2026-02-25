@@ -388,10 +388,15 @@ if current_msg in message_map:
                     print("  (+ body changes)")
 
             # Confirm
-            response = input("\nApply these changes? [y/N] ")
-            if response.lower() != 'y':
-                print("Cancelled")
-                return False
+            while True:
+                response = input("\nApply these changes? [y/N] ").lower()
+                if response == 'n':
+                    print("Cancelled")
+                    return False
+                elif response == 'y':
+                    break
+                else:
+                    print("Invalid input")
 
             # Apply changes
             return self.apply_changes(commits, edited_messages)
@@ -402,6 +407,7 @@ if current_msg in message_map:
             except:
                 pass
 
+# @commit 64e0d050551cb7893d9335623c1cd935a712befa
 
 def main():
     parser = argparse.ArgumentParser(
@@ -445,4 +451,3 @@ Examples:
 
 if __name__ == '__main__':
     main()
-
