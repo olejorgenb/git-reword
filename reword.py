@@ -415,6 +415,7 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
+  %(prog)s abc123               # Edit a single commit
   %(prog)s HEAD~5..HEAD         # Edit last 5 commits
   %(prog)s main..feature        # Edit commits in feature branch
   %(prog)s abc123..def456       # Edit commits in range
@@ -423,7 +424,7 @@ Examples:
 
     parser.add_argument(
         'range',
-        help='Git commit range (e.g., HEAD~5..HEAD, main..feature-branch)'
+        help='Git commit range (e.g., HEAD~5..HEAD, main..feature-branch) or single commit (e.g., abc123)'
     )
     parser.add_argument(
         '--editor',
@@ -431,6 +432,10 @@ Examples:
     )
 
     args = parser.parse_args()
+
+    # If a single ref (no range), expand to just that commit
+    if '..' not in args.range:
+        args.range = f'{args.range}^..{args.range}'
 
     # Check if in git repository
     try:
