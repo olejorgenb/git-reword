@@ -329,6 +329,12 @@ if current_msg in message_map:
 
         print(f"Found {len(commits)} commits to potentially reword")
 
+        if len(commits) > 100:
+            response = input(f"Warning: {len(commits)} commits is a lot. Continue? [y/N] ").lower()
+            if response != 'y':
+                print("Cancelled")
+                return False
+
         # Store original commits
         self.original_commits = commits
 
