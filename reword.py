@@ -409,12 +409,30 @@ if current_msg in message_map:
 
 # @commit 64e0d050551cb7893d9335623c1cd935a712befa
 
+def detect_branch_range() -> str:
+    """Detect the commit range for the current feature branch using origin/HEAD."""
+    try:
+        result = subprocess.run(
+            ['git', 'symbolic-ref', 'refs/remotes/origin/HEAD'],
+            capture_output=True, text=True, check=True
+        )
+        main_ref = result.stdout.strip()  # e.g. refs/remotes/origin/develop
+        main_branch = main_ref.removeprefix('refs/remotes/origin/')
+    except subprocess.CalledProcessError:
+        print("Error: Could not determine main branch.")
+        print("Run: git remote set-head origin --auto")
+        sys.exit(1)
+
+    return f'{main_branch}..HEAD'
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Bulk edit git commit messages in your editor",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
+  %(prog)s                      # Edit all commits on current branch
   %(prog)s abc123               # Edit a single commit
   %(prog)s HEAD~5..HEAD         # Edit last 5 commits
   %(prog)s main..feature        # Edit commits in feature branch
@@ -424,7 +442,8 @@ Examples:
 
     parser.add_argument(
         'range',
-        help='Git commit range (e.g., HEAD~5..HEAD, main..feature-branch) or single commit (e.g., abc123)'
+        nargs='?',
+        help='Git commit range (e.g., HEAD~5..HEAD, main..feature-branch) or single commit (e.g., abc123). Defaults to all commits on the current branch.'
     )
     parser.add_argument(
         '--editor',
@@ -432,10 +451,6 @@ Examples:
     )
 
     args = parser.parse_args()
-
-    # If a single ref (no range), expand to just that commit
-    if '..' not in args.range:
-        args.range = f'{args.range}^..{args.range}'
 
     # Check if in git repository
     try:
@@ -446,6 +461,12 @@ Examples:
     except subprocess.CalledProcessError:
         print("Error: Not in a git repository")
         sys.exit(1)
+
+    if args.range is None:
+        args.range = detect_branch_range()
+    elif '..' not in args.range:
+        # Single ref: expand to just that commit
+        args.range = f'{args.range}^..{args.range}'
 
     # Run the rewriter
     rewriter = GitCommitRewriter()
