@@ -48,6 +48,25 @@ class GitCommitRewriter:
     def __init__(self):
         self.original_commits: List[Commit] = []
         self.edited_commits: Dict[str, str] = {}
+        self.repo_url: Optional[str] = self._get_repo_url()
+
+    def _get_repo_url(self) -> Optional[str]:
+        """Derive the GitLab project URL from the origin remote."""
+        try:
+            result = subprocess.run(
+                ['git', 'remote', 'get-url', 'origin'],
+                capture_output=True, text=True, check=True
+            )
+            url = result.stdout.strip()
+            # SSH: git@gitlab.com:group/repo.git
+            if url.startswith('git@'):
+                url = url[4:]                      # gitlab.com:group/repo.git
+                url = url.replace(':', '/', 1)     # gitlab.com/group/repo.git
+                url = 'https://' + url
+            url = url.removesuffix('.git')
+            return url
+        except subprocess.CalledProcessError:
+            return None
 
     def get_commits(self, commit_range: str) -> List[Commit]:
         """Get all commits in the specified range with full messages."""
@@ -106,6 +125,8 @@ class GitCommitRewriter:
 
         for commit in commits:
             lines.append(self.COMMIT_DELIMITER.format(commit.sha))
+            if self.repo_url:
+                lines.append(f"# {self.repo_url}/-/commit/{commit.sha}")
             lines.append(commit.full_message)
             lines.append(self.END_DELIMITER)
             lines.append("")
