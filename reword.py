@@ -112,7 +112,7 @@ class GitCommitRewriter:
                 print(f"Git error: {e.stderr}")
             return []
 
-    def create_edit_content(self, commits: List[Commit]) -> str:
+    def create_edit_content(self, commits: List[Commit], no_commit_link: bool = False) -> str:
         """Create the content for the editor with all commit messages."""
         lines = []
         lines.append("# Edit commit messages below")
@@ -125,7 +125,7 @@ class GitCommitRewriter:
 
         for commit in commits:
             lines.append(self.COMMIT_DELIMITER.format(commit.sha))
-            if self.repo_url:
+            if self.repo_url and not no_commit_link:
                 lines.append(f"# {self.repo_url}/-/commit/{commit.sha}")
             lines.append(commit.full_message)
             lines.append(self.END_DELIMITER)
@@ -340,7 +340,7 @@ if current_msg in message_map:
 # If not found, leave the message unchanged
 '''
 
-    def run(self, commit_range: str, editor: Optional[str] = None) -> bool:
+    def run(self, commit_range: str, editor: Optional[str] = None, no_commit_link: bool = False) -> bool:
         """Main entry point to run the reword process."""
         # Get commits
         commits = self.get_commits(commit_range)
@@ -363,7 +363,7 @@ if current_msg in message_map:
 
 
         # Create edit content
-        edit_content = self.create_edit_content(commits)
+        edit_content = self.create_edit_content(commits, no_commit_link=no_commit_link)
 
         # Open in editor
         with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
@@ -478,6 +478,11 @@ Examples:
         '--editor',
         help='Editor to use (defaults to $EDITOR or vim)'
     )
+    parser.add_argument(
+        '--no-commit-link',
+        action='store_true',
+        help='Omit GitLab commit URL comments from the editor'
+    )
 
     args = parser.parse_args()
 
@@ -499,7 +504,7 @@ Examples:
 
     # Run the rewriter
     rewriter = GitCommitRewriter()
-    success = rewriter.run(args.range, args.editor)
+    success = rewriter.run(args.range, args.editor, no_commit_link=args.no_commit_link)
 
     sys.exit(0 if success else 1)
 
