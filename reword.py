@@ -413,17 +413,18 @@ def detect_branch_range() -> str:
     """Detect the commit range for the current feature branch using origin/HEAD."""
     try:
         result = subprocess.run(
-            ['git', 'symbolic-ref', 'refs/remotes/origin/HEAD'],
+            ['git', 'ls-remote', '--symref', 'origin', 'HEAD'],
             capture_output=True, text=True, check=True
         )
-        main_ref = result.stdout.strip()  # e.g. refs/remotes/origin/develop
-        main_branch = main_ref.removeprefix('refs/remotes/origin/')
+        for line in result.stdout.splitlines():
+            if line.startswith('ref: refs/heads/'):
+                main_branch = line.split('\t')[0].removeprefix('ref: refs/heads/')
+                return f'{main_branch}..HEAD'
     except subprocess.CalledProcessError:
-        print("Error: Could not determine main branch.")
-        print("Run: git remote set-head origin --auto")
-        sys.exit(1)
+        pass
 
-    return f'{main_branch}..HEAD'
+    print("Error: Could not determine main branch from origin.")
+    sys.exit(1)
 
 
 def main():
@@ -467,6 +468,8 @@ Examples:
     elif '..' not in args.range:
         # Single ref: expand to just that commit
         args.range = f'{args.range}^..{args.range}'
+
+    print(f"Range: {args.range}")
 
     # Run the rewriter
     rewriter = GitCommitRewriter()
