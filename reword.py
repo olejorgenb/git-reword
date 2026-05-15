@@ -421,15 +421,24 @@ if current_msg in message_map:
 
             # Confirm
             while True:
-                response = input("\nApply these changes? [y/N] ").lower()
+                response = input("\nApply these changes? [Y/n] ").lower()
                 if response == 'n':
                     print("Cancelled")
                     keep_temp = True
                     return False
-                elif response == 'y':
+                elif response in ('y', ''):
                     break
                 else:
                     print("Invalid input")
+
+            # Capture pre-rebase HEAD so the user can revert easily
+            head_result = subprocess.run(
+                ['git', 'rev-parse', 'HEAD'],
+                capture_output=True, text=True, check=True
+            )
+            original_head = head_result.stdout.strip()
+            print(f"\nPre-reword HEAD: {original_head}")
+            print(f"To revert:       git reset --hard {original_head}")
 
             # Apply changes
             success = self.apply_changes(commits, edited_messages)
