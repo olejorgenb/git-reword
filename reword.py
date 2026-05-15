@@ -370,6 +370,7 @@ if current_msg in message_map:
             f.write(edit_content)
             temp_file = f.name
 
+        keep_temp = False
         try:
             # Open the editor
 
@@ -387,6 +388,7 @@ if current_msg in message_map:
             result = subprocess.run(editor_cmd)
             if result.returncode != 0:
                 print("Editor exited with error")
+                keep_temp = True
                 return False
 
             # Read and parse edited content
@@ -398,6 +400,7 @@ if current_msg in message_map:
             # Validate
             if not self.validate_edited_commits(commits
 , edited_messages):
+                keep_temp = True
                 return False
 
             # Check for changes
@@ -421,6 +424,7 @@ if current_msg in message_map:
                 response = input("\nApply these changes? [y/N] ").lower()
                 if response == 'n':
                     print("Cancelled")
+                    keep_temp = True
                     return False
                 elif response == 'y':
                     break
@@ -428,13 +432,23 @@ if current_msg in message_map:
                     print("Invalid input")
 
             # Apply changes
-            return self.apply_changes(commits, edited_messages)
+            success = self.apply_changes(commits, edited_messages)
+            if not success:
+                keep_temp = True
+            return success
+
+        except KeyboardInterrupt:
+            keep_temp = True
+            raise
 
         finally:
-            try:
-                os.unlink(temp_file)
-            except:
-                pass
+            if keep_temp:
+                print(f"Edits preserved at: {temp_file}")
+            else:
+                try:
+                    os.unlink(temp_file)
+                except:
+                    pass
 
 # @commit 64e0d050551cb7893d9335623c1cd935a712befa
 
