@@ -60,24 +60,25 @@ def repo_url(cwd: Path | str | None = None) -> str | None:
     return url.removesuffix(".git")
 
 
+def commit_url(repo_url: str, sha: str) -> str:
+    """Forge URL for a commit. GitHub style for github.com, GitLab style otherwise."""
+    if "github.com" in repo_url:
+        return f"{repo_url}/commit/{sha}"
+    return f"{repo_url}/-/commit/{sha}"
+
+
 def get_commit(sha: str, cwd: Path | str | None = None) -> Commit:
     from git_reword.format import cleanup
 
-    out = subprocess.run(
-        ["git", "log", "-n", "1", "--date=iso", "--format=%an <%ae>%n%ad%n%B", sha],
-        capture_output=True,
-        text=True,
-        check=True,
-        cwd=cwd,
-    ).stdout
+    out = run("log", "-n", "1", "--date=iso", "--format=%an <%ae>%n%ad%n%B", sha, cwd=cwd)
     author, date, message = out.split("\n", 2)
     return Commit(sha=sha, message=cleanup(message), author=author, date=date)
 
 
-def get_commits(commit_range: str) -> list[Commit]:
+def get_commits(commit_range: str, cwd: Path | str | None = None) -> list[Commit]:
     """All commits in the range, oldest first."""
-    shas = [s for s in run("rev-list", "--reverse", commit_range).split("\n") if s]
-    return [get_commit(sha) for sha in shas]
+    shas = [s for s in run("rev-list", "--reverse", commit_range, cwd=cwd).split("\n") if s]
+    return [get_commit(sha, cwd=cwd) for sha in shas]
 
 
 def detect_branch_range() -> str:

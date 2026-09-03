@@ -79,17 +79,18 @@ def test_short_indent_is_error_with_line_number():
     [d] = result.errors
     assert d.code == "short-indent"
     assert d.line == 2
+    assert (result.blocks[0].line, result.blocks[0].end_line) == (0, 4)
     # The rest of the block still parses.
     assert result.messages == {SHA_A: "Subject\nback"}
 
 
 def test_unindented_line_hints_depend_on_position():
     before = parse("stray\n")
-    assert codes(before) == ["unindented-line"]
+    assert codes(before) == ["unexpected-line"]
     assert "`commit <sha>`" in before.diagnostics[0].message
 
     after_header = parse(f"commit {SHA_A}\nstray\n    Subject\n")
-    assert codes(after_header) == ["unindented-line"]
+    assert codes(after_header) == ["unexpected-line"]
     assert "info line" in after_header.diagnostics[0].message
 
     in_message = parse(f"commit {SHA_A}\n    Subject\nstray\n")

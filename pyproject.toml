@@ -7,10 +7,12 @@ requires-python = ">=3.13"
 dependencies = [
     "typer>=0.12",
     "rich>=13",
+    "pygls>=2.1",
 ]
 
 [project.scripts]
 git-reword = "git_reword.cli:main"
+git-reword-lsp = "git_reword.lsp.server:main"
 
 [dependency-groups]
 dev = [

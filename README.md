@@ -29,6 +29,20 @@ Flags: `--commit-link` adds a forge URL comment per commit, `--info` adds
 `Author:` and `Date:` lines, `--continue` reopens the file from an aborted
 run, `--force` discards it.
 
+## Language server
+
+`git-reword-lsp` speaks LSP over stdio and finds the repository by walking up
+from the file, so it works on `.git/REWORD_EDITMSG` and on `.reword` files
+inside a worktree. It provides:
+
+- diagnostics: format errors with quick-fixes, subject length, unknown shas,
+  and a hint on every commit whose message changed
+- document symbols (outline): one per commit, subject plus short sha
+- hover on a `commit` line: author, date, original message
+- code actions: revert a commit to its original message, open it in the
+  forge, indent misindented lines
+- document links on shas, and formatting that normalises indentation
+
 ## Development
 
 ```

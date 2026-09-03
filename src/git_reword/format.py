@@ -47,6 +47,7 @@ class Diagnostic:
 class Block:
     sha: str
     line: int  # 0-based line of the `commit` line
+    end_line: int = 0  # exclusive; the block spans lines [line, end_line)
     message: str = ""  # cleaned message, "" when empty
     subject_line: int | None = None
     info: dict[str, str] = field(default_factory=dict)
@@ -104,10 +105,11 @@ def parse(text: str) -> ParseResult:
     ) -> None:
         diagnostics.append(Diagnostic(line, message, code, col=col, end_col=end_col))
 
-    def close_block() -> None:
+    def close_block(end_line: int) -> None:
         nonlocal block, raw_message
         if block is None:
             return
+        block.end_line = end_line
         block.message = cleanup("\n".join(raw_message))
         if not block.message:
             error(block.line, f"Commit {block.sha[:8]} has an empty message", "empty-message")
@@ -129,7 +131,7 @@ def parse(text: str) -> ParseResult:
             continue
 
         if m := _COMMIT_RE.match(line):
-            close_block()
+            close_block(lineno)
             sha = m.group("sha")
             col = m.start("sha")
             if not _SHA_RE.match(sha):
@@ -177,10 +179,15 @@ def parse(text: str) -> ParseResult:
             hint = "expected an indented message line or `Key: value` info line"
         else:
             hint = "expected a `commit <sha>` line or a `#` comment"
-        code = "short-indent" if line[0] == " " else "unindented-line"
+        if line[0] == " ":
+            code = "short-indent"
+        elif block is not None and raw_message:
+            code = "unindented-line"  # inside a message: quick-fix is to indent
+        else:
+            code = "unexpected-line"
         error(lineno, f"Unexpected line at column 0; {hint}", code)
 
-    close_block()
+    close_block(len(lines))
     return ParseResult(blocks, diagnostics)
 
 
@@ -215,7 +222,9 @@ def write(
 ) -> str:
     """Render commits to the edit file. Blocks are separated by one blank line."""
     out = [HEADER]
-    for commit in commits:
+    for i, commit in enumerate(commits):
+        if i:
+            out.append("\n")
         out.append(f"commit {commit.sha}\n")
         if commit_link and repo_url:
             out.append(f"# {repo_url}/-/commit/{commit.sha}\n")
@@ -226,5 +235,4 @@ def write(
                 out.append(f"Date:   {commit.date}\n")
         for line in commit.message.split("\n"):
             out.append(f"    {line}\n" if line else "\n")
-        out.append("\n")
     return "".join(out)
