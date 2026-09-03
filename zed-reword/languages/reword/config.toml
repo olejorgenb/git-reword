@@ -1,0 +1,7 @@
+name = "Reword"
+grammar = "reword"
+path_suffixes = ["REWORD_EDITMSG", "reword"]
+line_comments = ["# "]
+tab_size = 4
+hard_tabs = false
+auto_indent_using_last_non_empty_line = true

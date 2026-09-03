@@ -1,0 +1,19 @@
+id = "reword"
+name = "Reword"
+description = "git-reword edit files: highlighting, outline and language server"
+version = "0.1.0"
+schema_version = 1
+authors = ["Ole Jørgen Brønner <olejorgenb@gmail.com>"]
+# Adjust if the project is published somewhere else.
+repository = "https://github.com/olejorgenb/git-reword"
+
+[language_servers.git-reword-lsp]
+name = "git-reword-lsp"
+languages = ["Reword"]
+
+# Grammar is loaded from this repository. Bump `rev` after changing the
+# grammar, then reinstall the dev extension.
+[grammars.reword]
+repository = "file:///home/ole/src/git-reword"
+rev = "eee6c005fe096bf7d4d4cd6aa251072cc1e88475"
+path = "tree-sitter-reword"
