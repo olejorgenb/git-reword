@@ -321,3 +321,28 @@ def test_resolve_malformed_sha_reported_once(tmp_path: Path, capsys):
     assert "Not a sha" in out
     assert "missing commits: aaaa1111" in out
     assert "unknown commit" not in out
+
+
+def test_message_diff_shows_only_changed_lines():
+    from git_reword.cli import message_diff
+
+    old = "Subject\n\nBody line one\nBody line two\nBody line three"
+    assert message_diff(old, "New subject\n\nBody line one\nBody line two\nBody line three") == (
+        "  -Subject\n  +New subject\n   "
+    )
+    assert message_diff(old, "Subject\n\nBody line one\nChanged\nBody line three") == (
+        "   Body line one\n  -Body line two\n  +Changed\n   Body line three"
+    )
+    # Two far-apart hunks are separated by a blank line, not @@ markers.
+    both = message_diff(old, "New subject\n\nBody line one\nBody line two\nChanged")
+    assert both == (
+        "  -Subject\n  +New subject\n   \n\n   Body line two\n  -Body line three\n  +Changed"
+    )
+    assert "@@" not in both
+
+
+def test_message_diff_color_marks_only_changed_lines():
+    from git_reword.cli import message_diff
+
+    out = message_diff("A\nB", "A\nC", color=True)
+    assert out == "   A\n  \033[31m-B\033[0m\n  \033[32m+C\033[0m"

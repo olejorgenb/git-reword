@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import difflib
 import os
 import shlex
 import subprocess
@@ -103,6 +104,28 @@ def ensure_excluded(edit_file: Path) -> None:
             f.write(f"{prefix}{EXCLUDE_MARKER}\n{EDIT_FILE}\n")
     except (GitError, OSError) as e:
         print(f"Warning: could not add {EDIT_FILE} to info/exclude: {e}")
+
+
+_RED, _GREEN, _RESET = "\033[31m", "\033[32m", "\033[0m"
+
+
+def message_diff(old: str, new: str, *, color: bool = False) -> str:
+    """Unified diff of two messages, indented, without file headers.
+
+    One line of context; hunks separated by a blank line rather than `@@`
+    markers, which say nothing useful for a text this short.
+    """
+    lines = difflib.unified_diff(old.split("\n"), new.split("\n"), n=1, lineterm="")
+    out: list[str] = []
+    for line in list(lines)[2:]:  # skip the ---/+++ headers
+        if line.startswith("@@"):
+            if out:
+                out.append("")
+            continue
+        if color and line[0] in "-+":
+            line = f"{_RED if line[0] == '-' else _GREEN}{line}{_RESET}"
+        out.append(f"  {line}")
+    return "\n".join(out)
 
 
 def open_editor(editor: str | None, path: Path) -> int:
@@ -208,11 +231,8 @@ def reword(
 
         print(f"\nDetected {len(changes)} changed commit(s):")
         for commit, new_msg in changes:
-            print(f"\n{commit.sha[:8]}: {commit.subject}")
-            print("  ↓")
-            print(f"  {new_msg.split(chr(10))[0]}")
-            if "\n" in new_msg:
-                print("  (+ body changes)")
+            print(f"\ncommit {commit.sha[:8]}")
+            print(message_diff(commit.message, new_msg, color=sys.stdout.isatty()))
 
         if not confirm("\nApply these changes?", default=True):
             print("Cancelled")
