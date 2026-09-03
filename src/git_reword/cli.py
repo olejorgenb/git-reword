@@ -126,7 +126,7 @@ def reword(commit_range: str, editor: str | None, commit_link: bool) -> bool:
 
 
 @app.command()
-def main(
+def reword_command(
     commit_range: Annotated[
         str | None,
         typer.Argument(
@@ -163,5 +163,9 @@ def main(
     sys.exit(0 if success else 1)
 
 
-if __name__ == "__main__":
+def main() -> None:
     app()
+
+
+if __name__ == "__main__":
+    main()
