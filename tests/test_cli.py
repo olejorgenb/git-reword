@@ -170,6 +170,24 @@ shutil.copy(p, p.with_name("captured"))
     assert "Detected 2 changed commit(s)" in result.stdout
 
 
+def test_duplicate_original_message_gets_own_new_message(repo: Path):
+    """Two commits sharing an original message must not collapse to one new message."""
+    git("commit", "-q", "--allow-empty", "-m", "wip", cwd=repo)
+    git("commit", "-q", "--allow-empty", "-m", "wip", cwd=repo)
+
+    editor = """\
+import sys, pathlib
+p = pathlib.Path(sys.argv[1])
+text = p.read_text()
+text = text.replace("    wip\\n", "    X\\n", 1)
+text = text.replace("    wip\\n", "    Y\\n", 1)
+p.write_text(text)
+"""
+    result = run_reword(repo, editor, "HEAD~2..HEAD")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert messages(repo)[-2:] == ["X", "Y"]
+
+
 def _resolver(tmp_path: Path):
     """resolve() over two commits sharing the prefix aaaa, printing to capsys."""
     from git_reword import format as fmt
