@@ -66,6 +66,13 @@ themselves: Zed hands unknown schemes to the desktop's default handler for
 `zed://`, which for a dev build must be the dev build (the fork's install
 script registers it). The tooltip says "Open in Zed" or "Open in browser".
 
+Paths in a `--stat` block get a document link too: a comment line of the
+form `# <letter>  <path>` links the path to `file://<worktree root>/<path>`
+when that file exists. For a rename or copy, `old -> new`, only the new
+path is linked. The server recognises the shape, not the origin, so a
+hand-written comment of that shape links as well; no worktree root, no
+links.
+
 ## Reflow
 
 Rewrap the paragraph under the cursor to 72 columns of text, that is 76
