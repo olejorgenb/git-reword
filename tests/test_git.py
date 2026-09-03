@@ -24,6 +24,14 @@ def test_get_commit_empty_message(repo: Path) -> None:
     assert commits[0].message == ""
 
 
+def test_get_commit_rejects_option_shaped_sha(repo: Path, tmp_path: Path) -> None:
+    """--end-of-options keeps `git log` from reading the sha as an option."""
+    out = tmp_path / "out"
+    with pytest.raises(git.GitError):
+        git.get_commit(f"--output={out}", cwd=repo)
+    assert not out.exists()
+
+
 @pytest.mark.parametrize(
     ("remote", "expected"),
     [

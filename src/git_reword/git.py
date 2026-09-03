@@ -124,7 +124,17 @@ def get_commit(sha: str, cwd: Path | str | None = None) -> Commit:
 
     # `sha` may be an abbreviation; %H gives the full one back. %h is git's
     # own abbreviation, unique in the repository and sized by core.abbrev.
-    out = run("log", "-n", "1", "--date=iso", "--format=%H%n%h%n%an <%ae>%n%ad%n%B", sha, cwd=cwd)
+    # --end-of-options so an option-shaped `sha` cannot turn into a git option.
+    out = run(
+        "log",
+        "-n",
+        "1",
+        "--date=iso",
+        "--format=%H%n%h%n%an <%ae>%n%ad%n%B",
+        "--end-of-options",
+        sha,
+        cwd=cwd,
+    )
     full, short, author, date, *rest = out.split("\n", 4)
     message = rest[0] if rest else ""
     return Commit(sha=full, message=cleanup(message), author=author, date=date, short=short)

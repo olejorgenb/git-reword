@@ -55,6 +55,9 @@ class Repo:
         return cls(git_dir, git.repo_url(cwd=directory), git.toplevel(cwd=directory))
 
     def commit(self, sha: str) -> Commit | None:
+        # The parser rejects such tokens anyway; also keeps option-shaped ones away from git.
+        if not fmt._SHA_RE.match(sha):
+            return None
         if sha not in self._commits:
             try:
                 self._commits[sha] = git.get_commit(sha, cwd=self.git_dir)

@@ -61,6 +61,21 @@ def test_repo_discovery_from_inside_git_dir(repo: Path):
     assert r.root is None
 
 
+def test_commit_lookup_only_for_sha_shaped_tokens(repo: Path, tmp_path: Path):
+    """Non-sha tokens never reach git: no revision resolving, no option injection."""
+    r = Repo(git.git_dir(cwd=repo))
+    assert r.commit("HEAD") is None  # a valid revision, but the parser rejects it
+
+    out = tmp_path / "out"
+    assert r.commit(f"--output={out}") is None
+    assert not out.exists()
+
+    sha = git.get_commit("HEAD", cwd=repo).sha
+    commit = r.commit(sha[:8])
+    assert commit is not None
+    assert commit.sha == sha
+
+
 def test_clean_file_has_no_diagnostics(edit_file: Path):
     assert analyse(edit_file).diagnostics() == []
 
