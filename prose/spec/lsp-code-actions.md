@@ -1,8 +1,8 @@
 # Language server code actions
 
 Companion to `reword-format.md`. Describes what the language server offers
-beyond diagnostics and formatting, and how "open this commit" reaches an
-editor or a forge.
+beyond diagnostics and formatting (code actions, links, folding), and how
+"open this commit" reaches an editor or a forge.
 
 ## Actions
 
@@ -94,6 +94,28 @@ reflows. Rewrapping changes line breaks the author may have chosen, so it
 stays an explicit action. In Zed, `editor: rewrap` does the same thing when
 `allow_rewrap` is `anywhere` and `preferred_line_length` is 76, but it does
 not know about subjects and trailers; the server action does.
+
+## Folding
+
+Editors that fold by indentation hide every indented line under a `commit`
+line, subject included, so a folded file is a list of shas. The server
+answers `textDocument/foldingRange` with two ranges per block instead:
+
+- **Block.** From the `commit` line to the last non-blank line of the
+  block, with `collapsedText` set to the subject. Folded, the block is one
+  line: the `commit` line followed by the subject as the fold placeholder.
+- **Body.** From the subject line to the same end line, so the `commit`
+  line, info lines and subject stay visible and only the body folds. Not
+  offered when the block has no body.
+
+Both are `region` folds. In an editor whose fold command picks the nearest
+enclosing range (Zed does), folding from the body hides the body, and
+folding from the `commit` or info lines collapses the whole block. Trailing
+blank lines between blocks are left out so the separation survives folding.
+A block with no message gets only the block range, without placeholder.
+
+Zed uses these ranges only when `document_folding_ranges` is `on` for the
+language; otherwise it folds by indentation and never asks.
 
 ## Not in scope
 

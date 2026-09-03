@@ -84,7 +84,12 @@ preceding message and trim; the result is the same.
 ## Writing
 
 The tool writes blocks in range order (oldest first), separated by one blank
-line, with a comment header explaining the rules.
+line, with a comment header explaining the rules. Within a block the
+`commit` line and any comment or info lines come first, then one blank
+line, then the message, as in `git log`. The blank line is only a margin:
+blank lines before the subject are not part of the message, so a block
+without one still parses, and the language server's revert action leaves
+the margin in place.
 
 Flags:
 
