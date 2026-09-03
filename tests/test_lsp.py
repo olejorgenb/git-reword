@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
+import time
 from pathlib import Path
+from urllib.parse import quote
 
 import pytest
 from lsprotocol import types as lsp
@@ -11,6 +14,7 @@ from lsprotocol import types as lsp
 from git_reword import format as fmt
 from git_reword import git
 from git_reword.lsp.analysis import OPEN_COMMIT_COMMAND, Analysis, Repo
+from git_reword.lsp.open import open_url, opener
 
 
 @pytest.fixture
@@ -145,6 +149,42 @@ def test_revert_and_open_actions(edit_file: Path):
     assert [x.title for x in actions] == [f"Open {other.sha[:8]} in browser"]
 
 
+def test_open_in_zed_only_for_zed(edit_file: Path, repo: Path):
+    a = analyse(edit_file)
+    block = a.result.blocks[0]
+    at = lsp.Range(lsp.Position(block.line, 0), lsp.Position(block.line, 0))
+    assert [x.title for x in a.code_actions(at)] == [f"Open {block.sha[:8]} in browser"]
+
+    a = Analysis(a.uri, a.text, a.repo, client="Zed")
+    actions = a.code_actions(at)
+    assert [x.title for x in actions] == [
+        f"Open {block.sha[:8]} in Zed",
+        f"Open {block.sha[:8]} in browser",
+    ]
+    assert actions[0].command.arguments == [f"zed://git/commit/{block.sha}?repo={quote(str(repo))}"]
+
+    # No worktree root (old edit file under .git/): no Zed action.
+    old = repo / ".git" / "REWORD_EDITMSG"
+    old.write_text(a.text)
+    a = Analysis(old.as_uri(), a.text, Repo.discover(old), client="Zed")
+    assert [x.title for x in a.code_actions(at)] == [f"Open {block.sha[:8]} in browser"]
+
+
+def test_opener_choice():
+    assert opener("zed://git/commit/abc?repo=%2Fx", platform="linux") == [
+        "zed",
+        "zed://git/commit/abc?repo=%2Fx",
+    ]
+    assert opener("https://x/y", platform="linux") == ["xdg-open", "https://x/y"]
+    assert opener("https://x/y", platform="darwin") == ["open", "https://x/y"]
+
+
+def test_open_url_reports_missing_opener(monkeypatch):
+    monkeypatch.setattr("git_reword.lsp.open.opener", lambda url: ["no-such-opener-xyz", url])
+    error = open_url("https://x/y")
+    assert error is not None and "no-such-opener-xyz" in error
+
+
 def test_revert_last_block_keeps_file_shape(edit_file: Path):
     original = edit_file.read_text()
     text = original.replace("    Third commit", "    Third commit, edited")
@@ -217,18 +257,32 @@ class Client:
         raise AssertionError(f"no message with method={method} id={id_}")
 
 
-def test_stdio_server(edit_file: Path, repo: Path):
+def test_stdio_server(edit_file: Path, repo: Path, tmp_path_factory):
     text = edit_file.read_text().replace("    Third commit", "  Third commit")
+    # A fake `zed` CLI on PATH records what the server asks it to open.
+    bin_dir = tmp_path_factory.mktemp("bin")
+    opened = bin_dir / "opened"
+    fake_zed = bin_dir / "zed"
+    fake_zed.write_text(f'#!/bin/sh\necho "$1" > "{opened}"\n')
+    fake_zed.chmod(0o755)
+    env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"}
     proc = subprocess.Popen(
         [sys.executable, "-m", "git_reword.lsp.server"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        env=env,
     )
     try:
         c = Client(proc)
         init_id = c.send(
-            "initialize", {"processId": None, "rootUri": repo.as_uri(), "capabilities": {}}
+            "initialize",
+            {
+                "processId": None,
+                "rootUri": repo.as_uri(),
+                "clientInfo": {"name": "Zed", "version": "0.0.0"},
+                "capabilities": {},  # no window/showDocument, like Zed
+            },
         )
         init = c.wait_for(id_=init_id)
         caps = init["result"]["capabilities"]
@@ -251,6 +305,31 @@ def test_stdio_server(edit_file: Path, repo: Path):
         sym_id = c.send("textDocument/documentSymbol", {"textDocument": {"uri": uri}})
         symbols = c.wait_for(id_=sym_id)["result"]
         assert [s["name"] for s in symbols] == ["First commit", "Second commit", "Body"]
+
+        # Code action on the first commit line, then run its command: the
+        # server has no showDocument to lean on, so it must call `zed`.
+        line = {"line": 3, "character": 0}
+        ca_id = c.send(
+            "textDocument/codeAction",
+            {
+                "textDocument": {"uri": uri},
+                "range": {"start": line, "end": line},
+                "context": {"diagnostics": []},
+            },
+        )
+        actions = c.wait_for(id_=ca_id)["result"]
+        zed_action = next(x for x in actions if x["title"].endswith("in Zed"))
+        cmd = zed_action["command"]
+        ex_id = c.send(
+            "workspace/executeCommand", {"command": cmd["command"], "arguments": cmd["arguments"]}
+        )
+        c.wait_for(id_=ex_id)
+        for _ in range(50):
+            if opened.exists():
+                break
+            time.sleep(0.05)
+        assert opened.read_text().strip() == cmd["arguments"][0]
+        assert opened.read_text().startswith("zed://git/commit/")
 
         shutdown_id = c.send("shutdown", {})
         c.wait_for(id_=shutdown_id)

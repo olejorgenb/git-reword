@@ -8,19 +8,25 @@ from lsprotocol import types as lsp
 from pygls.lsp.server import LanguageServer
 
 from git_reword.lsp.analysis import OPEN_COMMIT_COMMAND, Analysis, Repo
+from git_reword.lsp.open import open_url
 
 
 class RewordServer(LanguageServer):
     def __init__(self) -> None:
         super().__init__("git-reword-lsp", "0.1.0")
         self.repos: dict[Path, Repo | None] = {}
+        self.client: str | None = None  # clientInfo.name from initialize
 
     def analysis(self, uri: str) -> Analysis:
         doc = self.workspace.get_text_document(uri)
         path = Path(doc.path)
         if path.parent not in self.repos:
             self.repos[path.parent] = Repo.discover(path)
-        return Analysis(uri, doc.source, self.repos[path.parent])
+        return Analysis(uri, doc.source, self.repos[path.parent], client=self.client)
+
+    def supports_show_document(self) -> bool:
+        window = self.client_capabilities.window
+        return bool(window and window.show_document and window.show_document.support)
 
     def publish(self, uri: str) -> None:
         self.text_document_publish_diagnostics(
@@ -29,6 +35,11 @@ class RewordServer(LanguageServer):
 
 
 server = RewordServer()
+
+
+@server.feature(lsp.INITIALIZE)
+def initialize(ls: RewordServer, params: lsp.InitializeParams) -> None:
+    ls.client = params.client_info.name if params.client_info else None
 
 
 @server.feature(lsp.TEXT_DOCUMENT_DID_OPEN)
@@ -84,8 +95,14 @@ def formatting(ls: RewordServer, params: lsp.DocumentFormattingParams) -> list[l
 
 
 @server.command(OPEN_COMMIT_COMMAND)
-def open_commit(ls: RewordServer, args: list[str]) -> None:
-    ls.window_show_document(lsp.ShowDocumentParams(uri=args[0], external=True))
+def open_commit(ls: RewordServer, url: str) -> None:
+    """Open a forge or zed:// URL. Zed lacks window/showDocument, so fall
+    back to opening from this process. pygls maps each command argument to
+    one parameter, hence `url` rather than an argument list."""
+    if ls.supports_show_document():
+        ls.window_show_document(lsp.ShowDocumentParams(uri=url, external=True))
+    elif error := open_url(url):
+        ls.window_show_message(lsp.ShowMessageParams(lsp.MessageType.Warning, error))
 
 
 def main() -> None:

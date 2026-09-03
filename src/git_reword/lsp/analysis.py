@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
+from urllib.parse import quote
 
 from lsprotocol import types as lsp
 
@@ -63,6 +64,12 @@ class Repo:
     def commit_url(self, sha: str) -> str | None:
         return git.commit_url(self.url, sha) if self.url else None
 
+    def zed_url(self, sha: str) -> str | None:
+        """zed://git/commit/<sha>?repo=<root>, which opens Zed's commit view."""
+        if self.root is None:
+            return None
+        return f"zed://git/commit/{sha}?repo={quote(str(self.root))}"
+
 
 def _range(line: int, start: int, end: int) -> lsp.Range:
     return lsp.Range(lsp.Position(line, start), lsp.Position(line, end))
@@ -77,6 +84,7 @@ class Analysis:
     uri: str
     text: str
     repo: Repo | None
+    client: str | None = None  # editor name from initialize, e.g. "Zed"
 
     @cached_property
     def lines(self) -> list[str]:
@@ -262,17 +270,20 @@ class Analysis:
                 )
             )
 
-        url = self.repo.commit_url(block.sha) if self.repo else None
-        if url:
-            actions.append(
-                lsp.CodeAction(
-                    title=f"Open {block.sha[:8]} in browser",
-                    kind=lsp.CodeActionKind.Empty,
-                    command=lsp.Command(
-                        title="Open commit", command=OPEN_COMMIT_COMMAND, arguments=[url]
-                    ),
-                )
+        def open_action(title: str, url: str) -> lsp.CodeAction:
+            return lsp.CodeAction(
+                title=title,
+                kind=lsp.CodeActionKind.Empty,
+                command=lsp.Command(
+                    title="Open commit", command=OPEN_COMMIT_COMMAND, arguments=[url]
+                ),
             )
+
+        if self.repo is not None:
+            if self.client == "Zed" and (zed_url := self.repo.zed_url(block.sha)):
+                actions.append(open_action(f"Open {block.sha[:8]} in Zed", zed_url))
+            if url := self.repo.commit_url(block.sha):
+                actions.append(open_action(f"Open {block.sha[:8]} in browser", url))
         return actions
 
     def formatted(self) -> str:
