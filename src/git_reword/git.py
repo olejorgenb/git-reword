@@ -35,6 +35,18 @@ def run(*args: str, cwd: Path | str | None = None) -> str:
     return result.stdout.strip()
 
 
+def config(key: str, cwd: Path | str | None = None) -> str | None:
+    """`git config --get <key>`, or None when it is unset."""
+    result = subprocess.run(
+        ["git", "config", "--get", key], capture_output=True, text=True, cwd=cwd
+    )
+    if result.returncode == 1:
+        return None
+    if result.returncode != 0:
+        raise GitError(result.stderr.strip() or f"git config exited {result.returncode}")
+    return result.stdout.strip()
+
+
 def in_repo() -> bool:
     try:
         run("rev-parse", "--git-dir")

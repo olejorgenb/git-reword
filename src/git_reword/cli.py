@@ -139,6 +139,10 @@ def reword(
         print("No commits found in the specified range")
         return False
 
+    # A GitError here (root commit as the first commit of the range)
+    # propagates to reword_command, which prints it and exits 1.
+    plan = apply_mod.plan_rebase(commits)
+
     print(f"Found {len(commits)} commits to potentially reword")
 
     if len(commits) > 100:
@@ -147,6 +151,21 @@ def reword(
         if not confirm("Continue?", default=False):
             print("Cancelled")
             return False
+
+    if plan.merges:
+        if plan.rebase_merges:
+            print(
+                f"{len(plan.merges)} merge commit(s) in {plan.base[:8]}..HEAD; "
+                "rebasing with --rebase-merges to keep them"
+            )
+        else:
+            print(
+                f"Warning: rebase.rebaseMerges is false; this rebase will flatten "
+                f"{len(plan.merges)} merge commit(s)."
+            )
+            if not confirm("Continue?", default=False):
+                print("Cancelled")
+                return False
 
     edit_file = edit_file_path()
     if continue_:

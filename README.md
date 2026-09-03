@@ -34,6 +34,12 @@ file from an aborted run, `--force` discards it. Abbreviated shas are
 resolved against the commits of the range when the file is read back;
 an ambiguous or unknown prefix is an error.
 
+Merge commits in the rebased span are kept: git-reword rebases with
+`--rebase-merges` whenever the range contains one, unless
+`rebase.rebaseMerges` is explicitly set to false, in which case it warns
+that the rebase would flatten them and asks before continuing. Merge
+commit messages can be reworded like any other commit's.
+
 ## Language server
 
 `git-reword-lsp` speaks LSP over stdio and finds the repository by walking up

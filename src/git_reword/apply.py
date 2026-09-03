@@ -8,9 +8,40 @@ import shlex
 import subprocess
 import sys
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 
-from git_reword.git import Commit, GitError, run
+from git_reword.git import Commit, GitError, config, run
+
+# Git's own false spellings for a boolean config value.
+_FALSE_SPELLINGS = {"false", "no", "off", "0"}
+
+
+@dataclass(frozen=True)
+class RebasePlan:
+    base: str  # parent of the first commit in the range; the rebase --onto point
+    merges: list[str]  # shas of merge commits in base..HEAD
+    rebase_merges: bool  # whether apply() should pass --rebase-merges
+
+
+def plan_rebase(commits: list[Commit]) -> RebasePlan:
+    """Resolve the rebase base and detect merges in base..HEAD, up front.
+
+    Raises GitError when the first commit of the range is the root commit
+    (it has no parent to rebase onto).
+    """
+    first_sha = commits[0].sha
+    try:
+        base = run("rev-parse", f"{first_sha}^")
+    except GitError:
+        raise GitError(
+            f"{first_sha[:8]} is the root commit; git-reword cannot rebase from it"
+        ) from None
+
+    merges = [s for s in run("rev-list", "--merges", f"{base}..HEAD").split("\n") if s]
+    explicit_false = (config("rebase.rebaseMerges") or "").lower() in _FALSE_SPELLINGS
+    rebase_merges = bool(merges) and not explicit_false
+    return RebasePlan(base=base, merges=merges, rebase_merges=rebase_merges)
 
 
 def changed_commits(commits: list[Commit], edited: dict[str, str]) -> list[tuple[Commit, str]]:
@@ -31,12 +62,10 @@ def apply(commits: list[Commit], edited: dict[str, str]) -> bool:
     if not commits:
         return True
 
-    first_sha = commits[0].sha
     try:
-        parent_sha = run("rev-parse", f"{first_sha}^")
-    except GitError:
-        print(f"Error: Cannot find parent of {first_sha}")
-        print("This might be the root commit.")
+        plan = plan_rebase(commits)
+    except GitError as e:
+        print(f"Error: {e}")
         return False
 
     changes = changed_commits(commits, edited)
@@ -62,13 +91,19 @@ def apply(commits: list[Commit], edited: dict[str, str]) -> bool:
         env["GIT_EDITOR"] = f"{python} {shlex.quote(str(msg_editor_path))}"
 
         print("Applying changes via rebase...")
-        result = subprocess.run(
-            ["git", "-c", "commit.cleanup=whitespace", "rebase", "-i", parent_sha], env=env
-        )
+        cmd = ["git", "-c", "commit.cleanup=whitespace", "rebase", "-i"]
+        if plan.rebase_merges:
+            cmd.append("--rebase-merges")
+        cmd.append(plan.base)
+        result = subprocess.run(cmd, env=env)
         return result.returncode == 0
 
 
 def _sequence_editor(reword_shas: list[str]) -> str:
+    # With --rebase-merges the todo also has `merge -C <sha> <label> # ...`
+    # lines; the sha is the third whitespace-separated field there (second
+    # on pick lines). Changing -C to -c makes git open GIT_EDITOR with that
+    # merge's message, same as an ordinary reword.
     return f"""#!/usr/bin/env python3
 import sys
 
@@ -76,16 +111,37 @@ with open(sys.argv[1]) as f:
     lines = f.readlines()
 
 reword_shas = {reword_shas!r}
+marked: set[str] = set()
 
 new_lines = []
 for line in lines:
     if line.strip() and not line.startswith('#'):
-        parts = line.split(None, 2)
-        if len(parts) >= 2:
-            short_sha = parts[1]
-            if any(full.startswith(short_sha) for full in reword_shas):
-                line = line.replace('pick', 'reword', 1)
+        if line.startswith('pick '):
+            parts = line.split(None, 2)
+            if len(parts) >= 2:
+                short_sha = parts[1]
+                matches = [full for full in reword_shas if full.startswith(short_sha)]
+                if matches:
+                    line = line.replace('pick', 'reword', 1)
+                    marked.update(matches)
+        elif line.startswith('merge '):
+            parts = line.split(None, 3)
+            if len(parts) >= 3 and parts[1] == '-C':
+                short_sha = parts[2]
+                matches = [full for full in reword_shas if full.startswith(short_sha)]
+                if matches:
+                    line = line.replace('-C', '-c', 1)
+                    marked.update(matches)
     new_lines.append(line)
+
+missing = [sha for sha in reword_shas if sha not in marked]
+if missing:
+    for sha in missing:
+        print(
+            f'git-reword: commit {{sha[:8]}} is not in the rebase todo; aborting',
+            file=sys.stderr,
+        )
+    sys.exit(1)
 
 with open(sys.argv[1], 'w') as f:
     f.writelines(new_lines)

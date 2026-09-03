@@ -196,6 +196,87 @@ p.write_text(text)
     assert messages(repo)[-2:] == ["X", "Y"]
 
 
+EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+MERGE_EDITOR = """\
+import sys, pathlib
+p = pathlib.Path(sys.argv[1])
+text = p.read_text()
+text = text.replace("    Feature one\\n", "    Feature one, reworded\\n")
+text = text.replace(
+    "    Merge main into feature\\n", "    Merge main into feature, reworded\\n"
+)
+p.write_text(text)
+"""
+
+
+def _make_feature_merge(repo: Path) -> None:
+    """feature, branched at HEAD~1 (Second commit): Feature one, then a
+    --no-ff merge of main (Third commit) in, then Feature two."""
+    git("checkout", "-q", "-b", "feature", "HEAD~1", cwd=repo)
+    (repo / "f-one").write_text("one")
+    git("add", ".", cwd=repo)
+    git("commit", "-q", "-m", "Feature one", cwd=repo)
+    git("checkout", "-q", "feature", cwd=repo)
+    git("merge", "-q", "--no-ff", "main", "-m", "Merge main into feature", cwd=repo)
+    (repo / "f-two").write_text("two")
+    git("add", ".", cwd=repo)
+    git("commit", "-q", "-m", "Feature two", cwd=repo)
+
+
+def test_merge_preserved_and_reworded(repo: Path):
+    _make_feature_merge(repo)
+    main_sha = git("rev-parse", "main", cwd=repo)
+
+    result = run_reword(repo, MERGE_EDITOR, "main..HEAD")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "--rebase-merges" in result.stdout
+
+    assert git("rev-parse", "main", cwd=repo) == main_sha
+    merges = git("rev-list", "--merges", "main..HEAD", cwd=repo).split()
+    assert len(merges) == 1
+    assert (
+        git("log", "-1", "--format=%s", "HEAD~1", cwd=repo) == "Merge main into feature, reworded"
+    )
+    assert git("rev-parse", "HEAD~1^2", cwd=repo) == main_sha
+    assert git("log", "-1", "--format=%s", "HEAD~2", cwd=repo) == "Feature one, reworded"
+    assert git("log", "-1", "--format=%s", "HEAD", cwd=repo) == "Feature two"
+
+
+def test_merge_flatten_refused_by_default(repo: Path):
+    _make_feature_merge(repo)
+    git("config", "rebase.rebaseMerges", "false", cwd=repo)
+    before = git("rev-list", "HEAD", cwd=repo).split()
+
+    result = run_reword(repo, MERGE_EDITOR, "main..HEAD", stdin="n\n")
+    assert result.returncode == 1
+    assert "flatten" in result.stdout
+    assert git("rev-list", "HEAD", cwd=repo).split() == before
+    assert not (repo / "REWORD_EDITMSG").exists()
+
+
+def test_merge_flatten_confirmed_but_reworded_merge_fails(repo: Path):
+    _make_feature_merge(repo)
+    git("config", "rebase.rebaseMerges", "false", cwd=repo)
+    before = git("rev-list", "HEAD", cwd=repo).split()
+
+    result = run_reword(repo, MERGE_EDITOR, "main..HEAD", stdin="y\ny\n")
+    assert result.returncode == 1
+    assert "not in the rebase todo" in result.stdout + result.stderr
+    assert git("rev-list", "HEAD", cwd=repo).split() == before
+    assert (repo / "REWORD_EDITMSG").exists()
+
+
+def test_root_commit_in_range_refused(repo: Path):
+    # ".."/no-terminal defaults empty side to HEAD (HEAD..HEAD, empty range),
+    # not to the root; the well-known empty-tree sha is the idiom that
+    # actually yields the full history, root commit included.
+    result = run_reword(repo, "pass", f"{EMPTY_TREE}..HEAD")
+    assert result.returncode == 1
+    assert "root commit" in result.stdout
+    assert "Traceback" not in result.stderr
+
+
 def _resolver(tmp_path: Path):
     """resolve() over two commits sharing the prefix aaaa, printing to capsys."""
     from git_reword import format as fmt
