@@ -31,7 +31,9 @@ Two targets:
   the remote. The `repo` query parameter is the worktree root, URL-encoded.
   Zed opens or focuses a workspace for that path, so the view lands in the
   project window even when the edit file was opened as a single-file
-  workspace.
+  workspace. This is the same URL the `gl` shell alias in
+  `~/config/zsh/git-aliases.zsh` emits as terminal hyperlinks, so the
+  desktop scheme handler route is known to work here.
 
 The worktree root comes from the discovered git dir: `git_dir/gitdir` exists
 for linked worktrees and names `<root>/.git`; otherwise the root is the
