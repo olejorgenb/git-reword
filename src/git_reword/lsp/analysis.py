@@ -248,6 +248,12 @@ class Analysis:
         # clientInfo.name is "Zed", "Zed Preview", "Zed Nightly" or "Zed Dev".
         return self.client is not None and self.client.startswith("Zed")
 
+    def full_sha(self, block: fmt.Block) -> str:
+        """The commit's full sha when git knows it, else the token as written
+        (which may be an abbreviation)."""
+        original = self.original(block)
+        return original.sha if original is not None else block.sha
+
     def link_target(self, sha: str) -> tuple[str, str] | None:
         """(url, tooltip) for a sha: Zed's commit view in Zed, else the forge."""
         if self.repo is None:
@@ -261,7 +267,7 @@ class Analysis:
     def links(self) -> list[lsp.DocumentLink]:
         out = []
         for b in self.result.blocks:
-            if fmt._SHA_RE.match(b.sha) and (target := self.link_target(b.sha)):
+            if fmt._SHA_RE.match(b.sha) and (target := self.link_target(self.full_sha(b))):
                 url, tooltip = target
                 out.append(lsp.DocumentLink(range=self.sha_range(b), target=url, tooltip=tooltip))
         return out
@@ -386,9 +392,10 @@ class Analysis:
             )
 
         if self.repo is not None:
-            if self.is_zed and (zed_url := self.repo.zed_url(block.sha)):
+            sha = self.full_sha(block)
+            if self.is_zed and (zed_url := self.repo.zed_url(sha)):
                 actions.append(open_action(f"Open {block.sha[:8]} in Zed", zed_url))
-            if url := self.repo.commit_url(block.sha):
+            if url := self.repo.commit_url(sha):
                 actions.append(open_action(f"Open {block.sha[:8]} in browser", url))
         return actions
 

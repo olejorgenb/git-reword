@@ -25,7 +25,8 @@ HEADER = """\
 """
 
 _COMMIT_RE = re.compile(r"^commit[ \t]+(?P<sha>\S+)[ \t]*$")
-_SHA_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
+# Full sha or an abbreviation; git accepts 4 hex digits as the shortest.
+_SHA_RE = re.compile(r"^[0-9a-f]{4,64}$")
 _INFO_RE = re.compile(r"^(?P<key>[A-Za-z][A-Za-z-]*):(?P<value>.*)$")
 # Message content that looks like a trailer; same shape as the grammar's trailer_key.
 _TRAILER_RE = re.compile(r"^[A-Za-z][A-Za-z0-9-]*:[ \t]")
@@ -158,7 +159,7 @@ def parse(text: str) -> ParseResult:
             sha = m.group("sha")
             col = m.start("sha")
             if not _SHA_RE.match(sha):
-                error(lineno, f"Not a full sha: {sha}", "bad-sha", col=col, end_col=len(line))
+                error(lineno, f"Not a sha: {sha}", "bad-sha", col=col, end_col=len(line))
             elif sha in seen:
                 error(
                     lineno,
@@ -242,15 +243,17 @@ def write(
     repo_url: str | None = None,
     commit_link: bool = False,
     info: bool = False,
+    abbrev: bool = True,
 ) -> str:
     """Render commits to the edit file. Blocks are separated by one blank
     line; within a block one blank line separates the header lines from the
-    message, as in git log."""
+    message, as in git log. With `abbrev` the commit line carries the short
+    sha (when the commit has one); comments and URLs keep the full sha."""
     out = [HEADER]
     for i, commit in enumerate(commits):
         if i:
             out.append("\n")
-        out.append(f"commit {commit.sha}\n")
+        out.append(f"commit {commit.short if abbrev and commit.short else commit.sha}\n")
         if commit_link and repo_url:
             out.append(f"# {repo_url}/-/commit/{commit.sha}\n")
         if info:

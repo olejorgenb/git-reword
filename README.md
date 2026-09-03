@@ -28,8 +28,11 @@ commit 7dcfdad1afb39b697a8632f0c450c555abe7d5b6
 The full format is specified in `prose/spec/reword-format.md`.
 
 Flags: `--commit-link` adds a forge URL comment per commit, `--info` adds
-`Author:` and `Date:` lines, `--continue` reopens the file from an aborted
-run, `--force` discards it.
+`Author:` and `Date:` lines, `--no-abbrev` writes full shas instead of
+git's abbreviations (`--abbrev`, the default), `--continue` reopens the
+file from an aborted run, `--force` discards it. Abbreviated shas are
+resolved against the commits of the range when the file is read back;
+an ambiguous or unknown prefix is an error.
 
 ## Language server
 

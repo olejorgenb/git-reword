@@ -109,14 +109,22 @@ def test_links(edit_file: Path):
     a = analyse(edit_file)
     links = a.links()
     assert len(links) == 3
-    assert links[0].target == f"https://gitlab.com/group/repo/-/commit/{a.result.blocks[0].sha}"
+    # The file is written with abbreviated shas; links carry the full one.
+    assert len(a.result.blocks[0].sha) < 40
+    assert len(a.full_sha(a.result.blocks[0])) == 40
+    assert (
+        links[0].target
+        == f"https://gitlab.com/group/repo/-/commit/{a.full_sha(a.result.blocks[0])}"
+    )
     assert links[0].tooltip == "Open in browser"
     assert links[0].range.start.character == 7
 
     # In Zed the sha links to Zed's commit view instead.
     z = Analysis(a.uri, a.text, a.repo, client="Zed Preview")
     assert [x.tooltip for x in z.links()] == ["Open in Zed"] * 3
-    assert z.links()[0].target.startswith(f"zed://git/commit/{a.result.blocks[0].sha}?repo=")
+    assert z.links()[0].target.startswith(
+        f"zed://git/commit/{a.full_sha(a.result.blocks[0])}?repo="
+    )
 
 
 def test_folding_ranges(edit_file: Path):
@@ -176,7 +184,9 @@ def test_revert_and_open_actions(edit_file: Path):
     reverted = apply_edits(text, actions[0].edit.changes[a.uri])
     assert reverted == original
     assert actions[1].command.command == OPEN_COMMIT_COMMAND
-    assert actions[1].command.arguments == [f"https://gitlab.com/group/repo/-/commit/{block.sha}"]
+    assert actions[1].command.arguments == [
+        f"https://gitlab.com/group/repo/-/commit/{a.full_sha(block)}"
+    ]
 
     # Unchanged block: only the open action.
     other = a.result.blocks[0]
@@ -197,7 +207,9 @@ def test_open_in_zed_only_for_zed(edit_file: Path, repo: Path):
         f"Open {block.sha[:8]} in Zed",
         f"Open {block.sha[:8]} in browser",
     ]
-    assert actions[0].command.arguments == [f"zed://git/commit/{block.sha}?repo={quote(str(repo))}"]
+    assert actions[0].command.arguments == [
+        f"zed://git/commit/{a.full_sha(block)}?repo={quote(str(repo))}"
+    ]
 
     # No worktree root (old edit file under .git/): no Zed action.
     old = repo / ".git" / "REWORD_EDITMSG"
@@ -433,3 +445,12 @@ def test_stdio_server(edit_file: Path, repo: Path, tmp_path_factory):
     finally:
         if proc.poll() is None:
             proc.kill()
+
+
+def test_unknown_abbreviation(edit_file: Path):
+    a = analyse(edit_file)
+    text = a.text.replace(f"commit {a.result.blocks[0].sha}", "commit 0123456", 1)
+    a = analyse(edit_file, text)
+    assert [d.code for d in a.diagnostics()] == ["unknown-sha"]
+    # No commit to resolve through: the link falls back to the token as written.
+    assert a.links()[0].target.endswith("/-/commit/0123456")

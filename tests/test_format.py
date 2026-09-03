@@ -105,7 +105,8 @@ def test_info_line_after_message_is_error():
 
 
 def test_bad_and_duplicate_sha():
-    result = parse(f"commit abc123\n    One\ncommit {SHA_A}\n    Two\ncommit {SHA_A}\n    Three\n")
+    # 3 hex digits is below git's minimum abbreviation.
+    result = parse(f"commit abc\n    One\ncommit {SHA_A}\n    Two\ncommit {SHA_A}\n    Three\n")
     assert codes(result) == ["bad-sha", "duplicate-sha"]
     assert result.diagnostics[0].col == 7
     assert result.diagnostics[1].line == 4
@@ -184,3 +185,20 @@ def test_reflow_keeps_long_words_whole_and_accepts_tabs():
         "    tail",
     ]
     assert format_mod.reflow(["    a  b   c"]) == ["    a b c"]
+
+
+def test_write_abbrev():
+    commit = Commit(SHA_A, "Subject", short="aaaaaaa")
+    assert "commit aaaaaaa\n" in write([commit])
+    assert f"commit {SHA_A}\n" in write([commit], abbrev=False)
+    # No abbreviation known: fall back to the full sha.
+    assert f"commit {SHA_A}\n" in write([Commit(SHA_A, "Subject")])
+    # The link comment always carries the full sha.
+    linked = write([commit], repo_url="https://gl/g/r", commit_link=True)
+    assert f"# https://gl/g/r/-/commit/{SHA_A}\n" in linked
+
+
+def test_parse_accepts_abbreviated_sha():
+    result = parse("commit abcd\n    Four\ncommit abcdef012345\n    Twelve\n")
+    assert result.errors == []
+    assert [b.sha for b in result.blocks] == ["abcd", "abcdef012345"]

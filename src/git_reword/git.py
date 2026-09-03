@@ -15,10 +15,11 @@ class GitError(Exception):
 class Commit:
     """A git commit with its full (cleaned) message."""
 
-    sha: str
+    sha: str  # always full
     message: str
     author: str = ""  # "Name <email>"
     date: str = ""  # author date, iso
+    short: str = ""  # git's %h abbreviation, "" when not looked up
 
     @property
     def subject(self) -> str:
@@ -94,9 +95,11 @@ def commit_url(repo_url: str, sha: str) -> str:
 def get_commit(sha: str, cwd: Path | str | None = None) -> Commit:
     from git_reword.format import cleanup
 
-    out = run("log", "-n", "1", "--date=iso", "--format=%an <%ae>%n%ad%n%B", sha, cwd=cwd)
-    author, date, message = out.split("\n", 2)
-    return Commit(sha=sha, message=cleanup(message), author=author, date=date)
+    # `sha` may be an abbreviation; %H gives the full one back. %h is git's
+    # own abbreviation, unique in the repository and sized by core.abbrev.
+    out = run("log", "-n", "1", "--date=iso", "--format=%H%n%h%n%an <%ae>%n%ad%n%B", sha, cwd=cwd)
+    full, short, author, date, message = out.split("\n", 4)
+    return Commit(sha=full, message=cleanup(message), author=author, date=date, short=short)
 
 
 def get_commits(commit_range: str, cwd: Path | str | None = None) -> list[Commit]:

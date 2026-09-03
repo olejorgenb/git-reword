@@ -138,3 +138,69 @@ def test_single_commit_argument(repo: Path):
     assert result.returncode == 0, result.stdout + result.stderr
     assert messages(repo)[2].startswith("Second commit, reworded")
     assert messages(repo)[3] == MESSAGES[3]
+
+
+def test_abbrev_default_and_no_abbrev(repo: Path):
+    """The default file has short shas and still rewords; --no-abbrev has full ones."""
+    capture = """\
+import sys, pathlib, shutil
+p = pathlib.Path(sys.argv[1])
+shutil.copy(p, p.with_name("captured"))
+"""
+    result = run_reword(repo, capture, "HEAD~3..HEAD")
+    assert result.returncode == 0, result.stdout + result.stderr
+    shas = [
+        ln.split()[1]
+        for ln in (repo / "captured").read_text().splitlines()
+        if ln.startswith("commit ")
+    ]
+    assert shas and all(7 <= len(s) < 40 for s in shas)
+
+    result = run_reword(repo, capture, "--no-abbrev", "HEAD~3..HEAD")
+    assert result.returncode == 0, result.stdout + result.stderr
+    shas = [
+        ln.split()[1]
+        for ln in (repo / "captured").read_text().splitlines()
+        if ln.startswith("commit ")
+    ]
+    assert shas and all(len(s) == 40 for s in shas)
+
+    result = run_reword(repo, REPLACE_EDITOR, "HEAD~3..HEAD")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Detected 2 changed commit(s)" in result.stdout
+
+
+def _resolver(tmp_path: Path):
+    """resolve() over two commits sharing the prefix aaaa, printing to capsys."""
+    from git_reword import format as fmt
+    from git_reword.cli import resolve
+    from git_reword.git import Commit
+
+    a = Commit("aaaa1111" + "0" * 32, "A")
+    b = Commit("aaaa2222" + "0" * 32, "B")
+    path = tmp_path / "REWORD_EDITMSG"
+
+    def run(text: str, capsys) -> tuple[dict[str, str] | None, str]:
+        messages = resolve([a, b], fmt.parse(text), path)
+        return messages, capsys.readouterr().out
+
+    return run
+
+
+def test_resolve_cases(tmp_path: Path, capsys):
+    """Prefix resolution: ok, ambiguous, unknown and missing, duplicate, order."""
+    run = _resolver(tmp_path)
+    ok, out = run("commit aaaa1111\n    A\ncommit aaaa2222\n    B2\n", capsys)
+    assert ok == {"aaaa1111" + "0" * 32: "A", "aaaa2222" + "0" * 32: "B2"} and out == ""
+
+    none, out = run("commit aaaa\n    A\ncommit aaaa2222\n    B\n", capsys)
+    assert none is None and "ambiguous sha aaaa" in out
+
+    none, out = run("commit bbbb\n    A\ncommit aaaa2222\n    B\n", capsys)
+    assert none is None and "unknown commit bbbb" in out and "missing commits: aaaa1111" in out
+
+    none, out = run("commit aaaa1111\n    A\ncommit aaaa11110\n    B\n", capsys)
+    assert none is None and "duplicate commit aaaa1111" in out
+
+    none, out = run("commit aaaa2222\n    B\ncommit aaaa1111\n    A\n", capsys)
+    assert none is None and "not in the original order" in out

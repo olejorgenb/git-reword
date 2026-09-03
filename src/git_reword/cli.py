@@ -29,26 +29,43 @@ app = typer.Typer(
 )
 
 
-def validate(commits: list[Commit], result: format_mod.ParseResult, path: Path) -> bool:
-    """Print every problem as path:line: message. True when clean."""
+def resolve(
+    commits: list[Commit], result: format_mod.ParseResult, path: Path
+) -> dict[str, str] | None:
+    """Match each block to a commit of the range by sha prefix and return
+    {full sha: message}. Prints every problem as path:line: message and
+    returns None when there is any. Never asks git: the range is the only
+    valid universe for the file's shas."""
     ok = True
     for d in result.errors:
         print(f"{path}:{d.line + 1}: error: {d.message}")
         ok = False
 
+    messages: dict[str, str] = {}
+    edited: list[str] = []
+    for b in result.blocks:
+        matches = [c for c in commits if c.sha.startswith(b.sha)]
+        if not matches:
+            print(f"{path}:{b.line + 1}: error: unknown commit {b.sha[:8]}")
+            ok = False
+        elif len(matches) > 1:
+            print(f"{path}:{b.line + 1}: error: ambiguous sha {b.sha}")
+            ok = False
+        elif matches[0].sha in messages:
+            print(f"{path}:{b.line + 1}: error: duplicate commit {b.sha[:8]}")
+            ok = False
+        else:
+            messages[matches[0].sha] = b.message
+            edited.append(matches[0].sha)
+
     original = [c.sha for c in commits]
-    edited = [b.sha for b in result.blocks]
     if missing := set(original) - set(edited):
         print(f"{path}: error: missing commits: {', '.join(s[:8] for s in sorted(missing))}")
         ok = False
-    for b in result.blocks:
-        if b.sha not in original:
-            print(f"{path}:{b.line + 1}: error: unknown commit {b.sha[:8]}")
-            ok = False
     if ok and edited != original:
         print(f"{path}: error: commits are not in the original order")
         ok = False
-    return ok
+    return messages if ok else None
 
 
 def edit_file_path() -> Path:
@@ -96,6 +113,7 @@ def reword(
     editor: str | None,
     commit_link: bool,
     info: bool,
+    abbrev: bool,
     continue_: bool,
     force: bool,
 ) -> bool:
@@ -124,7 +142,7 @@ def reword(
             print("Use --continue to keep editing it, or --force to start over.")
             return False
         content = format_mod.write(
-            commits, repo_url=git.repo_url(), commit_link=commit_link, info=info
+            commits, repo_url=git.repo_url(), commit_link=commit_link, info=info, abbrev=abbrev
         )
         ensure_excluded(edit_file)
         edit_file.write_text(content)
@@ -138,11 +156,12 @@ def reword(
 
         result = format_mod.parse(edit_file.read_text())
 
-        if not validate(commits, result, edit_file):
+        messages = resolve(commits, result, edit_file)
+        if messages is None:
             keep = True
             return False
 
-        changes = apply_mod.changed_commits(commits, result.messages)
+        changes = apply_mod.changed_commits(commits, messages)
         if not changes:
             print("No changes detected")
             return True
@@ -169,7 +188,7 @@ def reword(
         print(f"\nPre-reword HEAD: {original_head}")
         print(f"To revert:       git reset --hard {original_head}")
 
-        success = apply_mod.apply(commits, result.messages)
+        success = apply_mod.apply(commits, messages)
         if not success:
             keep = True
         return success
@@ -210,6 +229,10 @@ def reword_command(
     info: Annotated[
         bool, typer.Option("--info", help="Add Author and Date info lines per commit")
     ] = False,
+    abbrev: Annotated[
+        bool,
+        typer.Option("--abbrev/--no-abbrev", help="Abbreviated or full shas on commit lines"),
+    ] = True,
     continue_: Annotated[
         bool,
         typer.Option("--continue", help="Reopen the edit file left by an earlier run"),
@@ -234,6 +257,7 @@ def reword_command(
             editor=editor,
             commit_link=commit_link,
             info=info,
+            abbrev=abbrev,
             continue_=continue_,
             force=force,
         )
