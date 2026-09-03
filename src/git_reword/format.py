@@ -136,7 +136,12 @@ def parse(text: str) -> ParseResult:
         block.end_line = end_line
         block.message = cleanup("\n".join(raw_message))
         if not block.message:
-            error(block.line, f"Commit {block.sha[:8]} has an empty message", "empty-message")
+            error(
+                block.line,
+                f"Commit {block.sha[:8]} has an empty message; write a subject "
+                "(empty messages cannot be applied, even for commits that had one)",
+                "empty-message",
+            )
         blocks.append(block)
         block = None
         raw_message = []
