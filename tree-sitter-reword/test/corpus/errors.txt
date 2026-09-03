@@ -10,11 +10,16 @@ commit 7dcfdad1afb39b697a8632f0c450c555abe7d5b6
 
 (document
   (commit
-    (commit_line (sha (short_sha)))
+    (commit_line
+      (sha
+        (short_sha)))
     (message
-      (subject (subject_text))
+      (subject
+        (subject_text))
       (invalid_line)
-      (message_line (text)))))
+      (paragraph
+        (message_line
+          (text))))))
 
 ==================
 Unindented prose inside a message
@@ -28,11 +33,16 @@ stray words here
 
 (document
   (commit
-    (commit_line (sha (short_sha)))
+    (commit_line
+      (sha
+        (short_sha)))
     (message
-      (subject (subject_text))
+      (subject
+        (subject_text))
       (invalid_line)
-      (message_line (text)))))
+      (paragraph
+        (message_line
+          (text))))))
 
 ==================
 Stray line before any commit and between header and message
@@ -47,10 +57,13 @@ also stray
 (document
   (invalid_line)
   (commit
-    (commit_line (sha (short_sha)))
+    (commit_line
+      (sha
+        (short_sha)))
     (invalid_line)
     (message
-      (subject (subject_text)))))
+      (subject
+        (subject_text)))))
 
 ==================
 Info line after the message is invalid
@@ -63,7 +76,10 @@ Author: too late
 
 (document
   (commit
-    (commit_line (sha (short_sha)))
+    (commit_line
+      (sha
+        (short_sha)))
     (message
-      (subject (subject_text))
+      (subject
+        (subject_text))
       (invalid_line))))

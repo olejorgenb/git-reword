@@ -13,8 +13,9 @@
 (subject_text) @title
 (overflow) @string.special
 
-; Trailer-looking lines: "Key: value"
-((text) @attribute
-  (#match? @attribute "^[A-Za-z][A-Za-z0-9-]*: "))
+; Trailers: "Key: value" lines in the last paragraph only, like git.
+(trailer_line
+  key: (trailer_key) @attribute
+  value: (text) @string)
 
 (invalid_line) @punctuation.special

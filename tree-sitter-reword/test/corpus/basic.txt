@@ -17,12 +17,18 @@ commit 7dcfdad1afb39b697a8632f0c450c555abe7d5b6
   (comment)
   (blank_line)
   (commit
-    (commit_line (sha (short_sha)))
+    (commit_line
+      (sha
+        (short_sha)))
     (message
-      (subject (subject_text))
+      (subject
+        (subject_text))
       (blank_line)
-      (message_line (text))
-      (message_line (text)))))
+      (paragraph
+        (message_line
+          (text))
+        (message_line
+          (text))))))
 
 ==================
 Comment and info lines under the header
@@ -38,13 +44,22 @@ committer: shares a prefix with the commit keyword
 
 (document
   (commit
-    (commit_line (sha (short_sha)))
+    (commit_line
+      (sha
+        (short_sha)))
     (comment)
-    (info_line (info_key) (info_value))
-    (info_line (info_key) (info_value))
-    (info_line (info_key) (info_value))
+    (info_line
+      (info_key)
+      (info_value))
+    (info_line
+      (info_key)
+      (info_value))
+    (info_line
+      (info_key)
+      (info_value))
     (message
-      (subject (subject_text)))))
+      (subject
+        (subject_text)))))
 
 ==================
 Hash lines and deeper indentation inside a message are content
@@ -61,14 +76,22 @@ commit 7dcfdad1afb39b697a8632f0c450c555abe7d5b6
 
 (document
   (commit
-    (commit_line (sha (short_sha)))
+    (commit_line
+      (sha
+        (short_sha)))
     (message
-      (subject (subject_text))
+      (subject
+        (subject_text))
       (blank_line)
-      (message_line (text))
-      (message_line (text))
-      (comment)
-      (message_line (text)))))
+      (paragraph
+        (message_line
+          (text))
+        (message_line
+          (text))
+        (comment)
+        (message_line
+          (trailer_key)
+          (text))))))
 
 ==================
 Tab indentation
@@ -81,10 +104,15 @@ commit 7dcfdad1afb39b697a8632f0c450c555abe7d5b6
 
 (document
   (commit
-    (commit_line (sha (short_sha)))
+    (commit_line
+      (sha
+        (short_sha)))
     (message
-      (subject (subject_text))
-      (message_line (text)))))
+      (subject
+        (subject_text))
+      (paragraph
+        (message_line
+          (text))))))
 
 ==================
 Two commits, blank lines between belong to the first message
@@ -100,15 +128,21 @@ commit bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 
 (document
   (commit
-    (commit_line (sha (short_sha)))
+    (commit_line
+      (sha
+        (short_sha)))
     (message
-      (subject (subject_text))
+      (subject
+        (subject_text))
       (blank_line)
       (blank_line)))
   (commit
-    (commit_line (sha (short_sha)))
+    (commit_line
+      (sha
+        (short_sha)))
     (message
-      (subject (subject_text)))))
+      (subject
+        (subject_text)))))
 
 ==================
 Subject overflow past 72 characters
@@ -120,9 +154,13 @@ commit 7dcfdad1afb39b697a8632f0c450c555abe7d5b6
 
 (document
   (commit
-    (commit_line (sha (short_sha)))
+    (commit_line
+      (sha
+        (short_sha)))
     (message
-      (subject (subject_text) (overflow)))))
+      (subject
+        (subject_text)
+        (overflow)))))
 
 ==================
 Indented blank lines are blank lines
@@ -138,13 +176,18 @@ commit 7dcfdad1afb39b697a8632f0c450c555abe7d5b6
 
 (document
   (commit
-    (commit_line (sha (short_sha)))
+    (commit_line
+      (sha
+        (short_sha)))
     (message
-      (subject (subject_text))
+      (subject
+        (subject_text))
       (blank_line)
       (blank_line)
       (blank_line)
-      (message_line (text)))))
+      (paragraph
+        (message_line
+          (text))))))
 
 ==================
 Commit without a message
@@ -155,4 +198,98 @@ commit 7dcfdad1afb39b697a8632f0c450c555abe7d5b6
 
 (document
   (commit
-    (commit_line (sha (short_sha)))))
+    (commit_line
+      (sha
+        (short_sha)))))
+
+==================
+Trailers are only the last paragraph
+==================
+commit 7dcfdad1afb39b697a8632f0c450c555abe7d5b6
+    Subject
+
+    Note: this looks like a trailer but is body text.
+    More body.
+
+    Signed-off-by: Ole <ole@example.com>
+    # comment inside the trailer block
+    Co-Authored-By: Someone <x@y>
+
+---
+
+(document
+  (commit
+    (commit_line
+      (sha
+        (short_sha)))
+    (message
+      (subject
+        (subject_text))
+      (blank_line)
+      (paragraph
+        (message_line
+          (trailer_key)
+          (text))
+        (message_line
+          (text)))
+      (blank_line)
+      (paragraph
+        (message_line
+          (trailer_key)
+          (text))
+        (message_line
+          (text))
+        (message_line
+          (trailer_key)
+          (text))))))
+
+==================
+Last paragraph with a non-trailer line is a paragraph
+==================
+commit 7dcfdad1afb39b697a8632f0c450c555abe7d5b6
+    Subject
+
+    Key: value
+    but then prose
+
+---
+
+(document
+  (commit
+    (commit_line
+      (sha
+        (short_sha)))
+    (message
+      (subject
+        (subject_text))
+      (blank_line)
+      (paragraph
+        (message_line
+          (trailer_key)
+          (text))
+        (message_line
+          (text))))))
+
+==================
+Trailers directly after the subject, followed by blank lines
+==================
+commit 7dcfdad1afb39b697a8632f0c450c555abe7d5b6
+    Subject
+
+    Fixes: #12
+
+---
+
+(document
+  (commit
+    (commit_line
+      (sha
+        (short_sha)))
+    (message
+      (subject
+        (subject_text))
+      (blank_line)
+      (trailers
+        (trailer_line
+          (trailer_key)
+          (text))))))

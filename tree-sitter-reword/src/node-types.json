@@ -130,11 +130,15 @@
           "named": true
         },
         {
-          "type": "message_line",
+          "type": "paragraph",
           "named": true
         },
         {
           "type": "subject",
+          "named": true
+        },
+        {
+          "type": "trailers",
           "named": true
         }
       ]
@@ -145,11 +149,15 @@
     "named": true,
     "fields": {},
     "children": {
-      "multiple": false,
+      "multiple": true,
       "required": true,
       "types": [
         {
           "type": "text",
+          "named": true
+        },
+        {
+          "type": "trailer_key",
           "named": true
         }
       ]
@@ -159,6 +167,29 @@
     "type": "overflow",
     "named": true,
     "fields": {}
+  },
+  {
+    "type": "paragraph",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "comment",
+          "named": true
+        },
+        {
+          "type": "invalid_line",
+          "named": true
+        },
+        {
+          "type": "message_line",
+          "named": true
+        }
+      ]
+    }
   },
   {
     "type": "sha",
@@ -207,6 +238,55 @@
     "fields": {}
   },
   {
+    "type": "trailer_line",
+    "named": true,
+    "fields": {
+      "key": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "trailer_key",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "text",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "trailers",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "comment",
+          "named": true
+        },
+        {
+          "type": "invalid_line",
+          "named": true
+        },
+        {
+          "type": "trailer_line",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "\n",
     "named": false
   },
@@ -236,6 +316,10 @@
   },
   {
     "type": "subject_text",
+    "named": true
+  },
+  {
+    "type": "trailer_key",
     "named": true
   }
 ]

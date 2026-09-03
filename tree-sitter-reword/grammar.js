@@ -15,6 +15,10 @@ module.exports = grammar({
 
   extras: $ => [],
 
+  conflicts: $ => [
+    [$.message_line, $.trailer_line],
+  ],
+
   rules: {
     document: $ => seq(
       repeat(choice($.comment, $.blank_line, $.invalid_line)),
@@ -45,20 +49,43 @@ module.exports = grammar({
     blank_line: $ => choice(/[ \t]*\n/, seq($._indent, /[ \t]*\n/)),
 
     // Everything after the subject up to the next `commit` line belongs to
-    // the message, comments included. That is what makes the grammar
-    // conflict-free: blank lines never have two possible owners.
+    // the message, comments included, so blank lines never have two possible
+    // owners. The body is a sequence of paragraphs; like git, only the last
+    // paragraph can be trailers. LR(1) cannot know a paragraph is the last
+    // one, so `paragraph` and `trailers` are a declared GLR conflict and
+    // `trailers` wins by dynamic precedence when both parses complete.
     message: $ => seq(
       $.subject,
-      repeat(choice($.message_line, $.blank_line, $.comment, $.invalid_line)),
+      repeat(choice($._noise, $.paragraph)),
+      optional(seq($.trailers, repeat($._noise))),
     ),
+
+    _noise: $ => choice($.blank_line, $.comment, $.invalid_line),
+
+    // prec.right: a comment right after a line stays inside the paragraph.
+    paragraph: $ => prec.right(seq(
+      $.message_line,
+      repeat(choice($.message_line, $.comment, $.invalid_line)),
+    )),
+
+    trailers: $ => prec.dynamic(1, prec.right(seq(
+      $.trailer_line,
+      repeat(choice($.trailer_line, $.comment, $.invalid_line)),
+    ))),
 
     // Split at 72 characters so the overflow can be highlighted.
     subject: $ => seq($._indent, $.subject_text, optional(field('overflow', $.overflow)), '\n'),
     subject_text: $ => /[^\n]{1,72}/,
     overflow: $ => /[^\n]+/,
 
-    message_line: $ => seq($._indent, $.text, '\n'),
+    // A body line that looks like a trailer lexes the same way as a real
+    // trailer (key + rest) so both GLR branches consume identical tokens.
+    message_line: $ => seq($._indent, choice($.text, seq($.trailer_key, $.text)), '\n'),
+    trailer_line: $ => seq($._indent, field('key', $.trailer_key), field('value', $.text), '\n'),
+
     text: $ => /[^\n]+/,
+    // Precedence 1 so it beats `text` on lines that start with `Key: `.
+    trailer_key: $ => token(prec(1, /[A-Za-z][A-Za-z0-9-]*:[ \t]/)),
 
     // Precedence 1 so the lexer stops here instead of letting `blank_line`
     // keep the DFA alive until only `invalid_line` can match. Without it a
