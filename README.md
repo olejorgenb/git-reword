@@ -41,9 +41,16 @@ anywhere inside a worktree. It provides:
   and a hint on every commit whose message changed
 - document symbols (outline): one per commit, subject plus short sha
 - hover on a `commit` line: author, date, original message
-- code actions: revert a commit to its original message, open it in the
-  forge, indent misindented lines
+- code actions: revert a commit to its original message, reflow the
+  paragraph under the cursor to 72 columns, indent misindented lines, open
+  the commit in the forge (from `origin`), and in Zed open it in Zed's
+  commit view
 - document links on shas, and formatting that normalises indentation
+
+Opening a commit uses `window/showDocument` when the editor supports it.
+Zed does not, so there the server runs `xdg-open` (or `open` on macOS) for
+forge URLs and the `zed` CLI for `zed://git/commit/...` URLs; `zed` must be
+on the PATH the server sees.
 
 ## Development
 

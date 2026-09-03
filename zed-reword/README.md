@@ -25,6 +25,18 @@ If the server is not on the PATH Zed sees, point at it in settings:
 }
 ```
 
+## Code actions
+
+"Open `<sha>` in Zed" opens Zed's commit view (message, diff, open-on-remote
+button) through `zed://git/commit/<sha>?repo=<worktree root>`. Zed has no
+`window/showDocument`, so the server runs the `zed` CLI itself; for a dev
+build that is the `zed` the fork's install script puts on PATH, and the URL
+lands in the running instance. "Open `<sha>` in browser" goes through
+`xdg-open`.
+
+"Reflow paragraph" does what `editor: rewrap` does, but knows to leave the
+subject and trailers alone.
+
 ## Recommended settings
 
 Language `config.toml` cannot set these, so add them to `settings.json`:
