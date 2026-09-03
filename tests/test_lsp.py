@@ -239,7 +239,7 @@ def test_stdio_server(edit_file: Path, repo: Path):
 
         sym_id = c.send("textDocument/documentSymbol", {"textDocument": {"uri": uri}})
         symbols = c.wait_for(id_=sym_id)["result"]
-        assert [s["name"] for s in symbols] == ["First commit", "Second commit", "Third commit"]
+        assert [s["name"] for s in symbols] == ["First commit", "Second commit", "Body"]
 
         shutdown_id = c.send("shutdown", {})
         c.wait_for(id_=shutdown_id)
