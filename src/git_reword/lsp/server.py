@@ -89,6 +89,11 @@ def document_link(ls: RewordServer, params: lsp.DocumentLinkParams) -> list[lsp.
     return ls.analysis(params.text_document.uri).links()
 
 
+@server.feature(lsp.TEXT_DOCUMENT_FOLDING_RANGE)
+def folding_range(ls: RewordServer, params: lsp.FoldingRangeParams) -> list[lsp.FoldingRange]:
+    return ls.analysis(params.text_document.uri).folding_ranges()
+
+
 @server.feature(lsp.TEXT_DOCUMENT_FORMATTING)
 def formatting(ls: RewordServer, params: lsp.DocumentFormattingParams) -> list[lsp.TextEdit]:
     return ls.analysis(params.text_document.uri).format_edits()

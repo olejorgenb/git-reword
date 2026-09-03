@@ -265,6 +265,35 @@ class Analysis:
                 out.append(lsp.DocumentLink(range=self.sha_range(b), target=url, tooltip=tooltip))
         return out
 
+    def folding_ranges(self) -> list[lsp.FoldingRange]:
+        """Two folds per commit: the block from the `commit` line, showing the
+        subject as collapsed text, and the body from the subject line. Either
+        way the subject stays visible; indent folding would hide it."""
+        out = []
+        for block in self.result.blocks:
+            last = block.end_line - 1
+            while last > block.line and not self.lines[last].strip():
+                last -= 1
+            if last <= block.line:
+                continue
+            subject = block.subject_line
+            collapsed = block.message.split("\n", 1)[0] if subject is not None else None
+            out.append(
+                lsp.FoldingRange(
+                    start_line=block.line,
+                    end_line=last,
+                    kind=lsp.FoldingRangeKind.Region,
+                    collapsed_text=collapsed or None,
+                )
+            )
+            if subject is not None and last > subject:
+                out.append(
+                    lsp.FoldingRange(
+                        start_line=subject, end_line=last, kind=lsp.FoldingRangeKind.Region
+                    )
+                )
+        return out
+
     def code_actions(self, range_: lsp.Range) -> list[lsp.CodeAction]:
         actions: list[lsp.CodeAction] = []
 

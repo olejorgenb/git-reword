@@ -119,6 +119,35 @@ def test_links(edit_file: Path):
     assert z.links()[0].target.startswith(f"zed://git/commit/{a.result.blocks[0].sha}?repo=")
 
 
+def test_folding_ranges(edit_file: Path):
+    a = analyse(edit_file)
+    ranges = a.folding_ranges()
+    blocks = a.result.blocks
+    assert all(r.kind == lsp.FoldingRangeKind.Region for r in ranges)
+    by_start = {r.start_line: r for r in ranges}
+    for i, b in enumerate(blocks):
+        assert b.subject_line is not None
+        block_fold = by_start[b.line]
+        assert block_fold.collapsed_text == b.message.split("\n")[0]
+        # Ends on the last non-blank line, so the separator stays visible.
+        assert a.lines[block_fold.end_line].strip()
+        assert block_fold.end_line < b.end_line
+        if i + 1 < len(blocks):
+            assert block_fold.end_line < blocks[i + 1].line
+        if "\n" in b.message:
+            body_fold = by_start[b.subject_line]
+            assert body_fold.collapsed_text is None
+            assert body_fold.end_line == block_fold.end_line
+        else:
+            assert b.subject_line not in by_start  # nothing to fold under the subject
+    assert any("\n" in b.message for b in blocks)  # the fixture has a body to fold
+
+    # No message: only the block fold, without placeholder.
+    text = "commit " + blocks[0].sha + "\nAuthor: x\n\n"
+    ranges = Analysis(a.uri, text, a.repo).folding_ranges()
+    assert [(r.start_line, r.end_line, r.collapsed_text) for r in ranges] == [(0, 1, None)]
+
+
 def test_indent_quick_fix(edit_file: Path):
     text = edit_file.read_text().replace("    Body text", "Body text")
     a = analyse(edit_file, text)
