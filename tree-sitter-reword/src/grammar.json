@@ -123,14 +123,22 @@
           "type": "ALIAS",
           "content": {
             "type": "PATTERN",
-            "value": "[0-9a-f]{8}"
+            "value": "[0-9a-f]{4,8}"
           },
           "named": true,
           "value": "short_sha"
         },
         {
-          "type": "PATTERN",
-          "value": "[0-9a-f]{32}([0-9a-f]{24})?"
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "PATTERN",
+              "value": "[0-9a-f]+"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
         }
       ]
     },

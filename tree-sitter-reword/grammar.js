@@ -33,9 +33,12 @@ module.exports = grammar({
 
     commit_line: $ => seq('commit', /[ \t]+/, field('sha', $.sha), optional(/[ \t]+/), '\n'),
 
-    // The first 8 characters are a separate node so the outline can show
-    // a short sha.
-    sha: $ => seq(alias(/[0-9a-f]{8}/, $.short_sha), /[0-9a-f]{32}([0-9a-f]{24})?/),
+    // The first (up to) 8 characters are a separate node so the outline can
+    // show a short sha. Abbreviations of 4+ hex digits are shas too; the
+    // lexer takes the longest short_sha match, then whatever hex follows.
+    // Fewer than 4 digits leaves no token that reaches '\n', so the line
+    // becomes an invalid_line.
+    sha: $ => seq(alias(/[0-9a-f]{4,8}/, $.short_sha), optional(/[0-9a-f]+/)),
 
     comment: $ => /#[^\n]*\n/,
 

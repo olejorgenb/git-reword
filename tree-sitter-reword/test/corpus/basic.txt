@@ -295,3 +295,31 @@ commit 7dcfdad1afb39b697a8632f0c450c555abe7d5b6
         (trailer_line
           (trailer_key)
           (text))))))
+
+==================
+Abbreviated shas
+==================
+commit 7dcfdad
+    Seven
+
+commit 7dcfdad1afb3
+    Twelve
+
+---
+
+(document
+  (commit
+    (commit_line
+      (sha
+        (short_sha)))
+    (message
+      (subject
+        (subject_text))
+      (blank_line)))
+  (commit
+    (commit_line
+      (sha
+        (short_sha)))
+    (message
+      (subject
+        (subject_text)))))
