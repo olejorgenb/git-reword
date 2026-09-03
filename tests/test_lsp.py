@@ -110,7 +110,13 @@ def test_links(edit_file: Path):
     links = a.links()
     assert len(links) == 3
     assert links[0].target == f"https://gitlab.com/group/repo/-/commit/{a.result.blocks[0].sha}"
+    assert links[0].tooltip == "Open in browser"
     assert links[0].range.start.character == 7
+
+    # In Zed the sha links to Zed's commit view instead.
+    z = Analysis(a.uri, a.text, a.repo, client="Zed Preview")
+    assert [x.tooltip for x in z.links()] == ["Open in Zed"] * 3
+    assert z.links()[0].target.startswith(f"zed://git/commit/{a.result.blocks[0].sha}?repo=")
 
 
 def test_indent_quick_fix(edit_file: Path):

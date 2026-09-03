@@ -37,6 +37,10 @@ lands in the running instance. "Open `<sha>` in browser" goes through
 "Reflow paragraph" does what `editor: rewrap` does, but knows to leave the
 subject and trailers alone.
 
+Each sha is also a document link: ctrl-click opens the commit in Zed's
+commit view. Zed passes `zed://` links to the desktop's default handler, so
+that handler must be the Zed you are running.
+
 ## Recommended settings
 
 Language `config.toml` cannot set these, so add them to `settings.json`:

@@ -238,14 +238,28 @@ class Analysis:
             range=self.sha_range(block),
         )
 
+    @property
+    def is_zed(self) -> bool:
+        # clientInfo.name is "Zed", "Zed Preview", "Zed Nightly" or "Zed Dev".
+        return self.client is not None and self.client.startswith("Zed")
+
+    def link_target(self, sha: str) -> tuple[str, str] | None:
+        """(url, tooltip) for a sha: Zed's commit view in Zed, else the forge."""
+        if self.repo is None:
+            return None
+        if self.is_zed and (url := self.repo.zed_url(sha)):
+            return url, "Open in Zed"
+        if url := self.repo.commit_url(sha):
+            return url, "Open in browser"
+        return None
+
     def links(self) -> list[lsp.DocumentLink]:
-        if self.repo is None or self.repo.url is None:
-            return []
-        return [
-            lsp.DocumentLink(range=self.sha_range(b), target=self.repo.commit_url(b.sha))
-            for b in self.result.blocks
-            if fmt._SHA_RE.match(b.sha)
-        ]
+        out = []
+        for b in self.result.blocks:
+            if fmt._SHA_RE.match(b.sha) and (target := self.link_target(b.sha)):
+                url, tooltip = target
+                out.append(lsp.DocumentLink(range=self.sha_range(b), target=url, tooltip=tooltip))
+        return out
 
     def code_actions(self, range_: lsp.Range) -> list[lsp.CodeAction]:
         actions: list[lsp.CodeAction] = []
@@ -332,9 +346,7 @@ class Analysis:
             )
 
         if self.repo is not None:
-            # clientInfo.name is "Zed", "Zed Preview", "Zed Nightly" or "Zed Dev".
-            is_zed = self.client is not None and self.client.startswith("Zed")
-            if is_zed and (zed_url := self.repo.zed_url(block.sha)):
+            if self.is_zed and (zed_url := self.repo.zed_url(block.sha)):
                 actions.append(open_action(f"Open {block.sha[:8]} in Zed", zed_url))
             if url := self.repo.commit_url(block.sha):
                 actions.append(open_action(f"Open {block.sha[:8]} in browser", url))

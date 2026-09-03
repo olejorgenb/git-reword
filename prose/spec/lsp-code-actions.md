@@ -60,9 +60,11 @@ initialize starts with `Zed` (the name carries the release channel: `Zed`,
 the scheme. Both
 actions use `CodeActionKind.Empty` so editors list them without filtering.
 
-The document link on each sha keeps pointing at the forge URL. Editors open
-links themselves, and a `zed://` link would depend on the desktop's default
-handler for the scheme, which is wrong for a dev build of Zed.
+The document link on each sha (ctrl-click in Zed) targets the Zed commit
+URL when the client is Zed, otherwise the forge URL. Editors open links
+themselves: Zed hands unknown schemes to the desktop's default handler for
+`zed://`, which for a dev build must be the dev build (the fork's install
+script registers it). The tooltip says "Open in Zed" or "Open in browser".
 
 ## Reflow
 
