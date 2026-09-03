@@ -128,7 +128,7 @@ def test_folding_ranges(edit_file: Path):
     for i, b in enumerate(blocks):
         assert b.subject_line is not None
         block_fold = by_start[b.line]
-        assert block_fold.collapsed_text == b.message.split("\n")[0]
+        assert block_fold.collapsed_text == "\u00b7 " + b.message.split("\n")[0]
         # Ends on the last non-blank line, so the separator stays visible.
         assert a.lines[block_fold.end_line].strip()
         assert block_fold.end_line < b.end_line

@@ -102,8 +102,10 @@ line, subject included, so a folded file is a list of shas. The server
 answers `textDocument/foldingRange` with two ranges per block instead:
 
 - **Block.** From the `commit` line to the last non-blank line of the
-  block, with `collapsedText` set to the subject. Folded, the block is one
-  line: the `commit` line followed by the subject as the fold placeholder.
+  block, with `collapsedText` set to `· ` plus the subject. Folded, the
+  block is one line: the `commit` line followed by the subject as the fold
+  placeholder. The separator is there because editors trim the placeholder
+  text, so a leading space would not keep it off the sha.
 - **Body.** From the subject line to the same end line, so the `commit`
   line, info lines and subject stay visible and only the body folds. Not
   offered when the block has no body.

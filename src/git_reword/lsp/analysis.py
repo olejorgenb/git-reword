@@ -21,6 +21,7 @@ from git_reword.git import Commit, GitError
 SOURCE = "git-reword"
 OPEN_COMMIT_COMMAND = "git-reword.openCommit"
 INDENT_FIX_CODES = frozenset({"short-indent", "unindented-line"})
+SUBJECT_SEP = "\u00b7 "  # before the subject in a folded block
 
 _SEVERITY = {
     fmt.Severity.ERROR: lsp.DiagnosticSeverity.Error,
@@ -277,7 +278,13 @@ class Analysis:
             if last <= block.line:
                 continue
             subject = block.subject_line
-            collapsed = block.message.split("\n", 1)[0] if subject is not None else None
+            # Zed trims the placeholder text, so a plain leading space would
+            # vanish and the chip would touch the sha; a dot separator stays.
+            collapsed = (
+                f"{SUBJECT_SEP}{block.message.split(chr(10), 1)[0]}"
+                if subject is not None
+                else None
+            )
             out.append(
                 lsp.FoldingRange(
                     start_line=block.line,
