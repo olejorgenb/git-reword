@@ -104,15 +104,31 @@ lines in messages survive.
 
 ## File location
 
-The tool writes the file to `$GIT_DIR/REWORD_EDITMSG`, following the
-`COMMIT_EDITMSG` / `MERGE_MSG` convention. Rationale:
+The tool writes the file to `<worktree root>/REWORD_EDITMSG`, the top level
+of the working tree the command runs in. Rationale:
 
 - The language server finds the repository by walking up from the file path,
   like any LSP finds its project root. The file carries no repo path.
 - Editors match the language on the path suffix `REWORD_EDITMSG`.
 - Opening the file in an editor that already has the repo open puts it in
-  that project, so the language server starts with the repo as root.
+  that project as an ordinary buffer, so the language server starts with the
+  repo as root and the editor treats it like any project file.
 - The path is predictable after an abort, which enables `--continue`.
+- In a linked worktree the file sits next to that worktree's `.git` file,
+  where the user is, not in the main repository's `.git/worktrees/<name>/`.
+
+The file used to live in `$GIT_DIR`, like `COMMIT_EDITMSG`. That put it
+where editors watch `.git` for changes (Zed opens a lone file as a worktree
+that watches its parent directory), so every git operation woke the editor,
+and after the tool deleted the file Zed kept polling a stale worktree.
+
+The file is transient and must not be committed. Before writing it, the tool
+runs `git check-ignore`; if the path is not ignored it appends
+`REWORD_EDITMSG` with a marker comment to `info/exclude` in the common git
+dir (`git rev-parse --git-common-dir`), so linked worktrees share it. Users
+who prefer `.gitignore` can add it there and the tool leaves `info/exclude`
+alone. Without a working tree (bare repository) the tool falls back to
+`$GIT_DIR/REWORD_EDITMSG`.
 
 Files elsewhere use the `.reword` extension. The language server then walks
 up from the file looking for a repo and degrades gracefully if none is found.
