@@ -48,7 +48,12 @@ Date:   2026-02-25 05:59:29 +0100
 
 Details:
 
-- `<sha>` is a full 40 (or 64) hex sha. Abbreviated shas are an error.
+- `<sha>` is a full 40 (or 64) hex sha, or an abbreviation of at least 4
+  hex digits (git's minimum). The parser accepts any such token; whether
+  it names a commit, and which one, is decided by whoever reads the file
+  back (see Reading back). The tool writes abbreviated shas by default
+  (`--abbrev`, git's own `%h` length, so `core.abbrev` applies) and full
+  ones with `--no-abbrev`.
 - Comments are allowed on any line, including between message lines. This is
   also what keeps the tree-sitter grammar conflict-free: everything after the
   subject up to the next `commit` line belongs to that message, so blank lines
@@ -96,13 +101,24 @@ Flags:
 - `--commit-link`: emit a forge URL as a comment under each `commit` line. Off
   by default once the language server provides links.
 - `--info`: emit `Author:` and `Date:` info lines.
+- `--abbrev` / `--no-abbrev`: abbreviated (default) or full shas on the
+  `commit` lines. Abbreviation is git's `%h`, unique within the repository
+  at the time of writing. Comments and URLs always carry the full sha.
 
 ## Reading back
 
 The tool re-parses the file. Validation errors are reported with line numbers.
-The set of shas must equal the original set, in the original order. A commit
-is "changed" when its cleaned message differs from the original message after
-the same cleanup.
+Each block's sha is resolved against the commits of the range by prefix: no
+match is an unknown commit, more than one match is ambiguous, two blocks
+resolving to the same commit are a duplicate. All three are errors, so the
+resolution never touches git. After resolution the set of commits must
+equal the original set, in the original order. A commit is "changed" when
+its cleaned message differs from the original message after the same
+cleanup.
+
+The language server resolves shas through git instead (`git log -n 1`),
+since it has no range to match against; an ambiguous abbreviation is then
+an unknown commit. Links and URLs use the resolved full sha.
 
 When applying, git must be run with `commit.cleanup=whitespace` so that `#`
 lines in messages survive.
