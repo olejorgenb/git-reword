@@ -185,6 +185,65 @@ def test_open_url_reports_missing_opener(monkeypatch):
     assert error is not None and "no-such-opener-xyz" in error
 
 
+REFLOW_DOC = """\
+commit 7dcfdad1afb39b697a8632f0c450c555abe7d5b6
+    Subject line that is rather long and would wrap if it were treated as body text
+
+    A body paragraph written
+    with short lines.
+# a column-0 comment inside the paragraph splits it
+    More text after the
+    comment.
+
+        preformatted line
+        another one
+
+    Signed-off-by: Someone <s@example.com>
+    Reviewed-by: Other <o@example.com>
+"""
+
+
+def _reflow_actions(a: Analysis, line: int) -> list[lsp.CodeAction]:
+    at = lsp.Range(lsp.Position(line, 0), lsp.Position(line, 0))
+    return [x for x in a.code_actions(at) if x.title == "Reflow paragraph"]
+
+
+def test_reflow_action_on_body_paragraph_only(tmp_path: Path):
+    path = tmp_path / "x.reword"
+    a = Analysis(path.as_uri(), REFLOW_DOC, None)
+    assert a.paragraph_at(1) is None  # subject
+    assert a.paragraph_at(2) is None  # blank
+    assert a.paragraph_at(3) == (3, 5)
+    assert a.paragraph_at(5) is None  # comment
+    assert a.paragraph_at(7) == (6, 8)
+    assert a.paragraph_at(9) is None  # preformatted
+    assert a.paragraph_at(12) is None  # trailers
+    assert a.paragraph_at(0) is None  # commit line
+
+    (action,) = _reflow_actions(a, 4)
+    new = apply_edits(REFLOW_DOC, action.edit.changes[a.uri])
+    assert new.split("\n")[3:5] == [
+        "    A body paragraph written with short lines.",
+        "# a column-0 comment inside the paragraph splits it",
+    ]
+    assert _reflow_actions(a, 1) == []
+    assert _reflow_actions(a, 12) == []
+
+    # Already wrapped: nothing to offer.
+    b = Analysis(path.as_uri(), new, None)
+    assert _reflow_actions(b, 3) == []
+
+
+def test_reflow_body_that_looks_like_trailers_but_is_not_last(tmp_path: Path):
+    doc = (
+        "commit 7dcfdad1afb39b697a8632f0c450c555abe7d5b6\n    S\n\n"
+        "    Note: one\n    Note: two\n\n    tail\n"
+    )
+    a = Analysis((tmp_path / "x.reword").as_uri(), doc, None)
+    assert a.paragraph_at(3) == (3, 5)
+    assert a.paragraph_at(6) == (6, 7)
+
+
 def test_revert_last_block_keeps_file_shape(edit_file: Path):
     original = edit_file.read_text()
     text = original.replace("    Third commit", "    Third commit, edited")

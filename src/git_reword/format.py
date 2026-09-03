@@ -16,6 +16,7 @@ from enum import Enum
 from git_reword.git import Commit
 
 SUBJECT_MAX = 72
+WIDTH = 72  # body text columns, excluding the 4-space indent
 
 HEADER = """\
 # git-reword: edit the indented messages. Column-0 lines are structure.
@@ -26,6 +27,8 @@ HEADER = """\
 _COMMIT_RE = re.compile(r"^commit[ \t]+(?P<sha>\S+)[ \t]*$")
 _SHA_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 _INFO_RE = re.compile(r"^(?P<key>[A-Za-z][A-Za-z-]*):(?P<value>.*)$")
+# Message content that looks like a trailer; same shape as the grammar's trailer_key.
+_TRAILER_RE = re.compile(r"^[A-Za-z][A-Za-z0-9-]*:[ \t]")
 
 
 class Severity(Enum):
@@ -90,6 +93,26 @@ def _strip_indent(line: str) -> str | None:
     if line.startswith("\t"):
         return line[1:]
     return None
+
+
+def reflow(lines: list[str], width: int = WIDTH) -> list[str]:
+    """Rewrap indented message lines to `width` columns of text, 4-space
+    indented. Words are joined on single spaces; a word longer than `width`
+    stays on its own line. Greedy on purpose: that is what people expect
+    from a commit message, unlike textwrap's handling of long words."""
+    words = " ".join(_strip_indent(line) or line for line in lines).split()
+    out: list[str] = []
+    current: list[str] = []
+    length = 0
+    for word in words:
+        if current and length + 1 + len(word) > width:
+            out.append("    " + " ".join(current))
+            current, length = [], 0
+        current.append(word)
+        length += len(word) + (1 if length else 0)
+    if current:
+        out.append("    " + " ".join(current))
+    return out
 
 
 def parse(text: str) -> ParseResult:

@@ -127,6 +127,37 @@ class Analysis:
             start += 1
         return start, block.end_line
 
+    def paragraph_at(self, line: int) -> tuple[int, int] | None:
+        """[start, end) of the body paragraph containing `line`: a run of
+        non-blank message lines. None on the subject, in a trailer block, in
+        a preformatted paragraph (extra indent), or off any message line."""
+        block = self.block_at(line)
+        if block is None or line == block.subject_line:
+            return None
+        msg_start, msg_end = self.message_lines(block)
+
+        def content(i: int) -> str | None:
+            c = fmt._strip_indent(self.lines[i])
+            return c if c is not None and c.strip() else None
+
+        if not (msg_start <= line < msg_end) or content(line) is None:
+            return None
+        start = line
+        while start > msg_start and content(start - 1) is not None:
+            start -= 1
+        end = line + 1
+        while end < msg_end and content(end) is not None:
+            end += 1
+        if start == block.subject_line:
+            return None
+        texts = [content(i) or "" for i in range(start, end)]
+        if any(t.startswith((" ", "\t")) for t in texts):
+            return None
+        is_last = all(content(i) is None for i in range(end, msg_end))
+        if is_last and all(fmt._TRAILER_RE.match(t) for t in texts):
+            return None
+        return start, end
+
     # -- features ----------------------------------------------------------
 
     def diagnostics(self) -> list[lsp.Diagnostic]:
@@ -269,6 +300,27 @@ class Analysis:
                     ),
                 )
             )
+
+        if paragraph := self.paragraph_at(range_.start.line):
+            start, end = paragraph
+            new_lines = fmt.reflow(self.lines[start:end])
+            if new_lines != self.lines[start:end]:
+                actions.append(
+                    lsp.CodeAction(
+                        title="Reflow paragraph",
+                        kind=lsp.CodeActionKind.RefactorRewrite,
+                        edit=lsp.WorkspaceEdit(
+                            changes={
+                                self.uri: [
+                                    lsp.TextEdit(
+                                        lsp.Range(lsp.Position(start, 0), lsp.Position(end, 0)),
+                                        "".join(f"{line}\n" for line in new_lines),
+                                    )
+                                ]
+                            }
+                        ),
+                    )
+                )
 
         def open_action(title: str, url: str) -> lsp.CodeAction:
             return lsp.CodeAction(

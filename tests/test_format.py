@@ -158,3 +158,28 @@ def test_example_file():
 )
 def test_cleanup(raw: str, clean: str):
     assert cleanup(raw) == clean
+
+
+def test_reflow_joins_and_wraps():
+    lines = [
+        "    This is a paragraph written with short",
+        "    lines that should be joined and wrapped at seventy-two columns of",
+        "    text, excluding the indent.",
+    ]
+    out = format_mod.reflow(lines)
+    assert all(len(line) <= 76 and line.startswith("    ") for line in out)
+    assert " ".join(line[4:] for line in out) == " ".join(line[4:] for line in lines)
+    assert out == [
+        "    This is a paragraph written with short lines that should be joined and",
+        "    wrapped at seventy-two columns of text, excluding the indent.",
+    ]
+
+
+def test_reflow_keeps_long_words_whole_and_accepts_tabs():
+    long_word = "x" * 80
+    assert format_mod.reflow(["\tshort", f"\t{long_word}", "    tail"]) == [
+        "    short",
+        f"    {long_word}",
+        "    tail",
+    ]
+    assert format_mod.reflow(["    a  b   c"]) == ["    a b c"]
