@@ -1,0 +1,33 @@
+[project]
+name = "git-reword"
+version = "0.1.0"
+description = "Bulk edit git commit messages in your editor"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "typer>=0.12",
+    "rich>=13",
+]
+
+[project.scripts]
+git-reword = "git_reword.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff",
+    "ty",
+]
+
+[build-system]
+requires = ["uv_build>=0.8"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
