@@ -38,6 +38,7 @@ commit 7dcfdad1afb39b697a8632f0c450c555abe7d5b6
 Author: Ole <ole@example.com>
 Date:   2026-02-25 05:59:29 +0100
 committer: shares a prefix with the commit keyword
+
     Subject
 
 ---
@@ -57,6 +58,7 @@ committer: shares a prefix with the commit keyword
     (info_line
       (info_key)
       (info_value))
+    (blank_line)
     (message
       (subject
         (subject_text)))))
