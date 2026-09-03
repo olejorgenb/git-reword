@@ -8,8 +8,10 @@ git reword abc123           # a single commit
 git reword HEAD~5..HEAD     # a range
 ```
 
-Commit messages for the range are written to `.git/REWORD_EDITMSG`, opened
-in `$EDITOR`, and the changed ones are applied with an interactive rebase.
+Commit messages for the range are written to `REWORD_EDITMSG` at the
+worktree root, opened in `$EDITOR`, and the changed ones are applied with an
+interactive rebase. The file is transient; the tool adds its name to
+`.git/info/exclude` on first use unless `.gitignore` already covers it.
 
 The file looks like `git log` output. Column 0 is structure, indented lines
 are the message:
@@ -32,8 +34,8 @@ run, `--force` discards it.
 ## Language server
 
 `git-reword-lsp` speaks LSP over stdio and finds the repository by walking up
-from the file, so it works on `.git/REWORD_EDITMSG` and on `.reword` files
-inside a worktree. It provides:
+from the file, so it works on `REWORD_EDITMSG` and on `.reword` files
+anywhere inside a worktree. It provides:
 
 - diagnostics: format errors with quick-fixes, subject length, unknown shas,
   and a hint on every commit whose message changed

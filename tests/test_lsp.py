@@ -16,7 +16,7 @@ from git_reword.lsp.analysis import OPEN_COMMIT_COMMAND, Analysis, Repo
 @pytest.fixture
 def edit_file(repo: Path) -> Path:
     commits = git.get_commits("HEAD~3..HEAD", cwd=repo)
-    path = repo / ".git" / "REWORD_EDITMSG"
+    path = repo / "REWORD_EDITMSG"
     path.write_text(fmt.write(commits))
     return path
 
@@ -38,12 +38,23 @@ def apply_edits(text: str, edits: list[lsp.TextEdit]) -> str:
     return text
 
 
-def test_repo_discovery_from_inside_git_dir(edit_file: Path, repo: Path):
+def test_repo_discovery(edit_file: Path, repo: Path):
     r = Repo.discover(edit_file)
     assert r is not None
     assert r.git_dir == repo / ".git"
+    assert r.root == repo
     assert r.url == "https://gitlab.com/group/repo"
     assert Repo.discover(Path("/nonexistent/x.reword")) is None
+
+
+def test_repo_discovery_from_inside_git_dir(repo: Path):
+    """Edit files from older versions live in .git/; no root there."""
+    old = repo / ".git" / "REWORD_EDITMSG"
+    old.write_text("")
+    r = Repo.discover(old)
+    assert r is not None
+    assert r.git_dir == repo / ".git"
+    assert r.root is None
 
 
 def test_clean_file_has_no_diagnostics(edit_file: Path):

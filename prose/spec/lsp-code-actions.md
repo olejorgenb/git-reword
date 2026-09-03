@@ -35,9 +35,10 @@ Two targets:
   `~/config/zsh/git-aliases.zsh` emits as terminal hyperlinks, so the
   desktop scheme handler route is known to work here.
 
-The worktree root comes from the discovered git dir: `git_dir/gitdir` exists
-for linked worktrees and names `<root>/.git`; otherwise the root is the
-parent of the git dir.
+The worktree root is `git rev-parse --show-toplevel` from the edit file's
+directory, which the file location rule in `reword-format.md` guarantees is
+inside a worktree. The action is not offered when there is no root (a
+`.reword` file outside any worktree, or an old edit file under `.git/`).
 
 ### Mechanism
 

@@ -33,14 +33,15 @@ class Repo:
 
     git_dir: Path
     url: str | None = None
+    root: Path | None = None  # worktree root; None inside a bare repo or .git/
     _commits: dict[str, Commit | None] = field(default_factory=dict, repr=False)
 
     @classmethod
     def discover(cls, path: Path) -> Repo | None:
         """Repo for the directory containing `path`, or None when not in one.
 
-        Works from inside `.git/` (the REWORD_EDITMSG case) and from a
-        worktree.
+        Works from a worktree (the REWORD_EDITMSG case) and from inside
+        `.git/`, where files from older versions of the tool may still live.
         """
         directory = path.parent
         if not directory.is_dir():
@@ -49,7 +50,7 @@ class Repo:
             git_dir = git.git_dir(cwd=directory)
         except GitError:
             return None
-        return cls(git_dir, git.repo_url(cwd=directory))
+        return cls(git_dir, git.repo_url(cwd=directory), git.toplevel(cwd=directory))
 
     def commit(self, sha: str) -> Commit | None:
         if sha not in self._commits:

@@ -1,6 +1,7 @@
 # Zed extension for git-reword
 
-Language "Reword" for `.git/REWORD_EDITMSG` and `*.reword` files:
+Language "Reword" for `REWORD_EDITMSG` (written at the worktree root by
+`git reword`) and `*.reword` files:
 tree-sitter highlighting and outline, plus the `git-reword-lsp` language
 server (diagnostics, hover, code actions, links, formatting).
 
