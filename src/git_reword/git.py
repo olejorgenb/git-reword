@@ -84,21 +84,23 @@ def is_ignored(path: Path | str, cwd: Path | str | None = None) -> bool:
     raise GitError(result.stderr.strip() or f"git check-ignore exited {result.returncode}")
 
 
-_REMOTE_RE = re.compile(
-    r"^(?:(?P<scheme>ssh|git|https?)://)?"  # optional scheme
-    r"(?:[^@/]+@)?"  # optional user@
-    r"(?P<host>[^:/]+)"
-    r"(?(scheme)/|:(?!//))"  # scp-like `host:path`, else `scheme://host/path`
-    r"(?P<path>.+?)"  # rest of the path
-    r"(?:\.git)?/?$"
+# scheme://[user@]host[:port]/path
+_URL_REMOTE_RE = re.compile(
+    r"^(?:ssh|git|https?)://(?:[^@/]+@)?(?P<host>[^:/]+)(?::\d+)?/(?P<path>.+)$"
 )
+# scp-like [user@]host:path
+_SCP_REMOTE_RE = re.compile(r"^(?:[^@/]+@)?(?P<host>[^:/]+):(?P<path>.+)$")
 
 
 def forge_url(remote: str) -> str | None:
     """https://host/path for a remote URL, None for anything that is not a
     forge (local paths, file://)."""
-    m = _REMOTE_RE.match(remote)
-    return f"https://{m['host']}/{m['path']}" if m else None
+    pattern = _URL_REMOTE_RE if "://" in remote else _SCP_REMOTE_RE
+    m = pattern.match(remote)
+    if m is None:
+        return None
+    path = m["path"].removesuffix("/").removesuffix(".git")
+    return f"https://{m['host']}/{path}"
 
 
 def repo_url(cwd: Path | str | None = None) -> str | None:
