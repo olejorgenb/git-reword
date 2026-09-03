@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -83,18 +84,30 @@ def is_ignored(path: Path | str, cwd: Path | str | None = None) -> bool:
     raise GitError(result.stderr.strip() or f"git check-ignore exited {result.returncode}")
 
 
+_REMOTE_RE = re.compile(
+    r"^(?:(?P<scheme>ssh|git|https?)://)?"  # optional scheme
+    r"(?:[^@/]+@)?"  # optional user@
+    r"(?P<host>[^:/]+)"
+    r"(?(scheme)/|:(?!//))"  # scp-like `host:path`, else `scheme://host/path`
+    r"(?P<path>.+?)"  # rest of the path
+    r"(?:\.git)?/?$"
+)
+
+
+def forge_url(remote: str) -> str | None:
+    """https://host/path for a remote URL, None for anything that is not a
+    forge (local paths, file://)."""
+    m = _REMOTE_RE.match(remote)
+    return f"https://{m['host']}/{m['path']}" if m else None
+
+
 def repo_url(cwd: Path | str | None = None) -> str | None:
     """Derive the forge project URL from the origin remote."""
     try:
         url = run("remote", "get-url", "origin", cwd=cwd)
     except GitError:
         return None
-    # SSH: git@gitlab.com:group/repo.git
-    if url.startswith("git@"):
-        url = url[4:]  # gitlab.com:group/repo.git
-        url = url.replace(":", "/", 1)  # gitlab.com/group/repo.git
-        url = "https://" + url
-    return url.removesuffix(".git")
+    return forge_url(url)
 
 
 def commit_url(repo_url: str, sha: str) -> str:
