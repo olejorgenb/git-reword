@@ -146,8 +146,10 @@ def test_folding_ranges(edit_file: Path):
     a = analyse(edit_file)
     ranges = a.folding_ranges()
     blocks = a.result.blocks
-    assert all(r.kind == lsp.FoldingRangeKind.Region for r in ranges)
-    by_start = {r.start_line: r for r in ranges}
+    # The two-line header is the only comment run in the fixture.
+    comments = [r for r in ranges if r.kind == lsp.FoldingRangeKind.Comment]
+    assert [(r.start_line, r.end_line, r.collapsed_text) for r in comments] == [(0, 1, None)]
+    by_start = {r.start_line: r for r in ranges if r.kind == lsp.FoldingRangeKind.Region}
     for i, b in enumerate(blocks):
         assert b.subject_line is not None
         block_fold = by_start[b.line]
@@ -169,6 +171,22 @@ def test_folding_ranges(edit_file: Path):
     text = "commit " + blocks[0].sha + "\nAuthor: x\n\n"
     ranges = Analysis(a.uri, text, a.repo).folding_ranges()
     assert [(r.start_line, r.end_line, r.collapsed_text) for r in ranges] == [(0, 1, None)]
+
+
+def test_comment_runs_fold_to_their_first_line(edit_file: Path):
+    a = analyse(edit_file)
+    sha = a.result.blocks[0].sha
+    text = (
+        "# one\n"  # a lone comment does not fold
+        f"commit {sha}\n# 2 files changed\n# M  a\n# A  b\n\n    Subject\n# x\n# y\n    Body\n"
+    )
+    ranges = Analysis(a.uri, text, a.repo).folding_ranges()
+    comments = [r for r in ranges if r.kind == lsp.FoldingRangeKind.Comment]
+    assert [(r.start_line, r.end_line) for r in comments] == [(2, 4), (7, 8)]
+    assert all(r.collapsed_text is None for r in comments)
+    # The block fold still spans the whole block, comment runs included.
+    block = next(r for r in ranges if r.start_line == 1)
+    assert block.end_line == 9
 
 
 def test_indent_quick_fix(edit_file: Path):

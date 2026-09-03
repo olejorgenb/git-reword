@@ -278,8 +278,23 @@ class Analysis:
     def folding_ranges(self) -> list[lsp.FoldingRange]:
         """Two folds per commit: the block from the `commit` line, showing the
         subject as collapsed text, and the body from the subject line. Either
-        way the subject stays visible; indent folding would hide it."""
+        way the subject stays visible; indent folding would hide it. Plus one
+        per run of two or more comment lines, folding to its first line: a
+        `--stat` block collapses to its summary, the header to its first
+        line."""
         out = []
+        start: int | None = None
+        for i, line in enumerate([*self.lines, ""]):
+            if line.startswith("#"):
+                start = i if start is None else start
+                continue
+            if start is not None and i - start > 1:
+                out.append(
+                    lsp.FoldingRange(
+                        start_line=start, end_line=i - 1, kind=lsp.FoldingRangeKind.Comment
+                    )
+                )
+            start = None
         for block in self.result.blocks:
             last = block.end_line - 1
             while last > block.line and not self.lines[last].strip():

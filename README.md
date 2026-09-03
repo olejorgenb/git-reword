@@ -28,7 +28,9 @@ commit 7dcfdad1afb39b697a8632f0c450c555abe7d5b6
 The full format is specified in `prose/spec/reword-format.md`.
 
 Flags: `--commit-link` adds a forge URL comment per commit, `--info` adds
-`Author:` and `Date:` lines, `--no-abbrev` writes full shas instead of
+`Author:` and `Date:` lines, `--stat` adds the files each commit touched
+as comment lines (a summary, then one `M`/`A`/`D`/`R` line per file; merge
+commits get none), `--no-abbrev` writes full shas instead of
 git's abbreviations (`--abbrev`, the default), `--continue` reopens the
 file from an aborted run, `--force` discards it. Abbreviated shas are
 resolved against the commits of the range when the file is read back;
@@ -57,7 +59,9 @@ anywhere inside a worktree. It provides:
 - document links on shas, and formatting that normalises indentation
 - folding ranges that keep the subject visible: fold the body under a
   subject, or a whole block down to its `commit` line with the subject as
-  placeholder (Zed needs `document_folding_ranges: "on"` for the language)
+  placeholder; runs of comment lines fold to their first line, so a
+  `--stat` block collapses to its summary (Zed needs
+  `document_folding_ranges: "on"` for the language)
 
 Opening a commit uses `window/showDocument` when the editor supports it.
 Zed does not, so there the server runs `xdg-open` (or `open` on macOS) for

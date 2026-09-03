@@ -147,6 +147,54 @@ def get_commits(commit_range: str, cwd: Path | str | None = None) -> list[Commit
     return [_parse_commit(record) for record in out.split("\0") if record.strip()]
 
 
+@dataclass
+class Stat:
+    """What a commit touched, for the `--stat` comment block."""
+
+    summary: str  # git's --shortstat line, "" for an empty commit
+    files: list[tuple[str, str]]  # (status letter, path or "old -> new")
+
+
+# One record per commit, NUL first so a multi-line diff summary stays in it.
+_STAT_FORMAT = "--format=%x00%H %P"
+
+
+def _stat_records(commit_range: str, flag: str, cwd: Path | str | None) -> dict[str, list[str]]:
+    """{sha: non-blank lines git printed after the header} for every commit
+    in the range, skipping merges (their diff depends on which parent you
+    ask about, so they get no stat)."""
+    out = run("log", _STAT_FORMAT, flag, "--end-of-options", commit_range, cwd=cwd)
+    records: dict[str, list[str]] = {}
+    for record in out.split("\0"):
+        if not record.strip():
+            continue
+        header, *body = record.split("\n")
+        sha, *parents = header.split()
+        if len(parents) > 1:
+            continue
+        records[sha] = [line for line in body if line.strip()]
+    return records
+
+
+def get_stats(commit_range: str, cwd: Path | str | None = None) -> dict[str, Stat | None]:
+    """{sha: Stat} for the range; None for merge commits.
+
+    Two log calls, because --name-status silences --shortstat when both
+    are given.
+    """
+    names = _stat_records(commit_range, "--name-status", cwd)
+    summaries = _stat_records(commit_range, "--shortstat", cwd)
+    stats: dict[str, Stat | None] = {}
+    for sha, lines in names.items():
+        files = []
+        for line in lines:
+            status, *paths = line.split("\t")
+            files.append((status[0], " -> ".join(paths)))
+        summary = summaries.get(sha, [])
+        stats[sha] = Stat(summary=summary[0].strip() if summary else "", files=files)
+    return stats
+
+
 def detect_branch_range() -> str:
     """Commit range for the current feature branch using origin/HEAD."""
     try:

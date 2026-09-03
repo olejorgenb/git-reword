@@ -13,7 +13,7 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 
-from git_reword.git import Commit
+from git_reword.git import Commit, Stat
 
 SUBJECT_MAX = 72
 WIDTH = 72  # body text columns, excluding the 4-space indent
@@ -251,11 +251,15 @@ def write(
     commit_link: bool = False,
     info: bool = False,
     abbrev: bool = True,
+    stats: dict[str, Stat | None] | None = None,
 ) -> str:
     """Render commits to the edit file. Blocks are separated by one blank
     line; within a block one blank line separates the header lines from the
     message, as in git log. With `abbrev` the commit line carries the short
-    sha (when the commit has one); comments and URLs keep the full sha."""
+    sha (when the commit has one); comments and URLs keep the full sha.
+    `stats` (from `git.get_stats`) adds a comment block per commit: the
+    summary line, then one line per file. A commit absent from `stats`
+    (a merge) gets none."""
     out = [HEADER]
     for i, commit in enumerate(commits):
         if i:
@@ -263,6 +267,10 @@ def write(
         out.append(f"commit {commit.short if abbrev and commit.short else commit.sha}\n")
         if commit_link and repo_url:
             out.append(f"# {repo_url}/-/commit/{commit.sha}\n")
+        if stats is not None and (stat := stats.get(commit.sha)) is not None:
+            out.append(f"# {stat.summary or 'no files changed'}\n")
+            for status, path in stat.files:
+                out.append(f"# {status}  {path}\n")
         if info:
             if commit.author:
                 out.append(f"Author: {commit.author}\n")

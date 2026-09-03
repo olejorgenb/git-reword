@@ -216,3 +216,32 @@ def test_parse_accepts_abbreviated_sha():
     result = parse("commit abcd\n    Four\ncommit abcdef012345\n    Twelve\n")
     assert result.errors == []
     assert [b.sha for b in result.blocks] == ["abcd", "abcdef012345"]
+
+
+def test_write_stats():
+    from git_reword.git import Stat
+
+    stats = {
+        SHA_A: Stat(
+            "2 files changed, 3 insertions(+), 1 deletion(-)", [("M", "a"), ("R", "b -> c")]
+        ),
+        SHA_B: None,  # a merge: no block
+    }
+    content = write(
+        [Commit(SHA_A, "First"), Commit(SHA_B, "Second"), Commit("c" * 40, "Third")],
+        repo_url="https://gl/g/r",
+        commit_link=True,
+        stats=stats,
+    )
+    assert (
+        f"commit {SHA_A}\n# https://gl/g/r/-/commit/{SHA_A}\n"
+        "# 2 files changed, 3 insertions(+), 1 deletion(-)\n# M  a\n# R  b -> c\n\n    First\n"
+    ) in content
+    assert f"commit {SHA_B}\n# https://gl/g/r/-/commit/{SHA_B}\n\n    Second\n" in content
+    assert write([Commit(SHA_A, "First")], stats={SHA_A: Stat("", [])}).endswith(
+        f"commit {SHA_A}\n# no files changed\n\n    First\n"
+    )
+
+    result = parse(content)
+    assert result.errors == []
+    assert result.messages == {SHA_A: "First", SHA_B: "Second", "c" * 40: "Third"}

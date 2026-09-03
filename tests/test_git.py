@@ -62,3 +62,27 @@ def test_get_commit_rejects_option_shaped_sha(repo: Path, tmp_path: Path) -> Non
 )
 def test_forge_url(remote: str, expected: str | None) -> None:
     assert git.forge_url(remote) == expected
+
+
+def test_get_stats(repo: Path) -> None:
+    """One Stat per non-merge commit: shortstat summary plus name-status files."""
+    git_cmd("commit", "-q", "--allow-empty", "-m", "empty", cwd=repo)
+    git_cmd("mv", "f0", "g0", cwd=repo)
+    git_cmd("commit", "-q", "-m", "rename", cwd=repo)
+    git_cmd("checkout", "-q", "-b", "side", "HEAD~2", cwd=repo)
+    (repo / "s").write_text("s")
+    git_cmd("add", "s", cwd=repo)
+    git_cmd("commit", "-q", "-m", "side", cwd=repo)
+    git_cmd("checkout", "-q", "main", cwd=repo)
+    git_cmd("merge", "-q", "--no-ff", "-m", "merge", "side", cwd=repo)
+
+    commits = git.get_commits("HEAD~4..HEAD", cwd=repo)
+    stats = git.get_stats("HEAD~4..HEAD", cwd=repo)
+    by_subject = {c.subject: stats.get(c.sha) for c in commits}
+    assert by_subject == {
+        "Third commit": git.Stat("1 file changed, 1 insertion(+)", [("A", "f3")]),
+        "empty": git.Stat("", []),
+        "rename": git.Stat("1 file changed, 0 insertions(+), 0 deletions(-)", [("R", "f0 -> g0")]),
+        "side": git.Stat("1 file changed, 1 insertion(+)", [("A", "s")]),
+        "merge": None,
+    }

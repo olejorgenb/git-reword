@@ -346,3 +346,18 @@ def test_message_diff_color_marks_only_changed_lines():
 
     out = message_diff("A\nB", "A\nC", color=True)
     assert out == "   A\n  \033[31m-B\033[0m\n  \033[32m+C\033[0m"
+
+
+def test_stat_writes_foldable_comments(repo: Path):
+    copy = repo / "copy"
+    editor = f"import sys, shutil; shutil.copy(sys.argv[1], {str(copy)!r})"
+    result = run_reword(repo, editor, "HEAD~2..HEAD", "--stat")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "No changes detected" in result.stdout
+    text = copy.read_text()
+    assert "\n# 1 file changed, 1 insertion(+)\n# A  f3\n\n    Third commit\n" in text
+    assert "# A  f2\n" in text
+
+    plain = run_reword(repo, editor, "HEAD~2..HEAD")
+    assert plain.returncode == 0
+    assert "files changed" not in copy.read_text()

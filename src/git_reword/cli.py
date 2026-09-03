@@ -157,6 +157,7 @@ def reword(
     editor: str | None,
     commit_link: bool,
     info: bool,
+    stat: bool,
     abbrev: bool,
     continue_: bool,
     force: bool,
@@ -205,7 +206,12 @@ def reword(
             print("Use --continue to keep editing it, or --force to start over.")
             return False
         content = format_mod.write(
-            commits, repo_url=git.repo_url(), commit_link=commit_link, info=info, abbrev=abbrev
+            commits,
+            repo_url=git.repo_url(),
+            commit_link=commit_link,
+            info=info,
+            abbrev=abbrev,
+            stats=git.get_stats(commit_range) if stat else None,
         )
         ensure_excluded(edit_file)
         edit_file.write_text(content)
@@ -284,6 +290,9 @@ def reword_command(
     info: Annotated[
         bool, typer.Option("--info", help="Add Author and Date info lines per commit")
     ] = False,
+    stat: Annotated[
+        bool, typer.Option("--stat", help="Add the files each commit touched, as comments")
+    ] = False,
     abbrev: Annotated[
         bool,
         typer.Option("--abbrev/--no-abbrev", help="Abbreviated or full shas on commit lines"),
@@ -312,6 +321,7 @@ def reword_command(
             editor=editor,
             commit_link=commit_link,
             info=info,
+            stat=stat,
             abbrev=abbrev,
             continue_=continue_,
             force=force,
