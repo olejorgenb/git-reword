@@ -332,7 +332,9 @@ class Analysis:
             )
 
         if self.repo is not None:
-            if self.client == "Zed" and (zed_url := self.repo.zed_url(block.sha)):
+            # clientInfo.name is "Zed", "Zed Preview", "Zed Nightly" or "Zed Dev".
+            is_zed = self.client is not None and self.client.startswith("Zed")
+            if is_zed and (zed_url := self.repo.zed_url(block.sha)):
                 actions.append(open_action(f"Open {block.sha[:8]} in Zed", zed_url))
             if url := self.repo.commit_url(block.sha):
                 actions.append(open_action(f"Open {block.sha[:8]} in browser", url))

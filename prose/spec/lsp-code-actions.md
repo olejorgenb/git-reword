@@ -55,7 +55,9 @@ a silent no-op there. The command therefore opens the URL itself:
    spawn is reported with `window/showMessage`, never raised.
 
 The "Open in Zed" action is offered only when `clientInfo.name` at
-initialize is `Zed`, since no other editor understands the scheme. Both
+initialize starts with `Zed` (the name carries the release channel: `Zed`,
+`Zed Preview`, `Zed Nightly`, `Zed Dev`), since no other editor understands
+the scheme. Both
 actions use `CodeActionKind.Empty` so editors list them without filtering.
 
 The document link on each sha keeps pointing at the forge URL. Editors open

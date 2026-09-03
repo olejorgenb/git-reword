@@ -155,7 +155,8 @@ def test_open_in_zed_only_for_zed(edit_file: Path, repo: Path):
     at = lsp.Range(lsp.Position(block.line, 0), lsp.Position(block.line, 0))
     assert [x.title for x in a.code_actions(at)] == [f"Open {block.sha[:8]} in browser"]
 
-    a = Analysis(a.uri, a.text, a.repo, client="Zed")
+    # The name carries the release channel: "Zed Preview", "Zed Dev", ...
+    a = Analysis(a.uri, a.text, a.repo, client="Zed Preview")
     actions = a.code_actions(at)
     assert [x.title for x in actions] == [
         f"Open {block.sha[:8]} in Zed",
