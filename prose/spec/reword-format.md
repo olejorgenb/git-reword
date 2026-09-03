@@ -49,8 +49,10 @@ Date:   2026-02-25 05:59:29 +0100
 Details:
 
 - `<sha>` is a full 40 (or 64) hex sha. Abbreviated shas are an error.
-- Comments are allowed anywhere: before the first block, between blocks, and
-  between the `commit` line and the message.
+- Comments are allowed on any line, including between message lines. This is
+  also what keeps the tree-sitter grammar conflict-free: everything after the
+  subject up to the next `commit` line belongs to that message, so blank lines
+  and comments never have two possible owners.
 - Info lines (`Author:`, `Date:`, ...) may only appear between the `commit`
   line and the first message line. They are emitted behind a flag and are
   ignored on parse for now. Editing them is a possible future extension.
@@ -118,8 +120,15 @@ up from the file looking for a repo and degrades gracefully if none is found.
 ## Consumers
 
 - tree-sitter grammar: nodes `commit`, `sha`, `info_line`, `subject`,
-  `message_line`, `comment`. Outline shows sha and subject. Message lines are
-  injected as Git Commit (combined injection) for subject/trailer highlighting.
+  `message_line`, `comment`, `invalid_line`. No external scanner; `extras` is
+  empty and every line rule ends in an explicit newline, so the file must end
+  with a newline. `invalid_line` is a lowest-precedence catch-all so a bad
+  line is isolated instead of derailing the rest of the block. The subject
+  token is split at 72 characters into `subject_text` and `overflow` so the
+  overflow can be highlighted. Trailers are matched by a query on `text`.
+  Outline shows sha and subject. Injecting the Git Commit grammar per message
+  is not possible in Zed because combined injections merge across the whole
+  buffer, so message highlighting lives in this grammar.
 - Language server: diagnostics for every error above plus advisory ones
   (subject length, non-blank second line), hover with the original message,
   code actions (revert to original, open in forge, indent selection), document
