@@ -119,10 +119,14 @@ class Analysis:
 
     def message_lines(self, block: fmt.Block) -> tuple[int, int]:
         """[start, end) of the lines holding the message: everything after the
-        comment/info lines that directly follow the `commit` line."""
+        comment, info and blank lines that directly follow the `commit` line
+        (the writer puts a blank margin before the subject; it is not part
+        of the message and edits must leave it alone)."""
         start = block.line + 1
         while start < block.end_line and (
-            self.lines[start].startswith("#") or fmt._INFO_RE.match(self.lines[start])
+            self.lines[start].startswith("#")
+            or not self.lines[start].strip()
+            or fmt._INFO_RE.match(self.lines[start])
         ):
             start += 1
         return start, block.end_line

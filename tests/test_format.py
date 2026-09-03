@@ -36,11 +36,12 @@ def test_write_optional_lines():
     commit = Commit(SHA_A, "Subject", author="Ole <ole@x>", date="2026-02-25 05:59:29 +0100")
     plain = write([commit])
     assert "Author:" not in plain and "/-/commit/" not in plain
+    assert plain.endswith(f"commit {SHA_A}\n\n    Subject\n")  # blank margin, as in git log
 
     full = write([commit], repo_url="https://gl/g/r", commit_link=True, info=True)
     assert f"# https://gl/g/r/-/commit/{SHA_A}\n" in full
     assert "Author: Ole <ole@x>\n" in full
-    assert "Date:   2026-02-25 05:59:29 +0100\n" in full
+    assert "Date:   2026-02-25 05:59:29 +0100\n\n    Subject\n" in full
     assert full.endswith("\n")
 
     result = parse(full)

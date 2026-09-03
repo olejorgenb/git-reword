@@ -243,7 +243,9 @@ def write(
     commit_link: bool = False,
     info: bool = False,
 ) -> str:
-    """Render commits to the edit file. Blocks are separated by one blank line."""
+    """Render commits to the edit file. Blocks are separated by one blank
+    line; within a block one blank line separates the header lines from the
+    message, as in git log."""
     out = [HEADER]
     for i, commit in enumerate(commits):
         if i:
@@ -256,6 +258,7 @@ def write(
                 out.append(f"Author: {commit.author}\n")
             if commit.date:
                 out.append(f"Date:   {commit.date}\n")
+        out.append("\n")
         for line in commit.message.split("\n"):
             out.append(f"    {line}\n" if line else "\n")
     return "".join(out)
