@@ -11,9 +11,6 @@ grammar and the language server.
 
 commit 7dcfdad1afb39b697a8632f0c450c555abe7d5b6
 # https://gitlab.com/group/repo/-/commit/7dcfdad1afb39b697a8632f0c450c555abe7d5b6
-# 2 files changed, 40 insertions(+), 12 deletions(-)
-# M  src/test_env_cli/cli.py
-# A  tests/test_cli.py
     test-env-cli: refactor the CLI interface
 
     The previous subcommand-based interface made it difficult to
@@ -21,6 +18,10 @@ commit 7dcfdad1afb39b697a8632f0c450c555abe7d5b6
 
     ai-agent: Claude 4 Opus
     autonomy: med
+
+# 2 files changed, 40 insertions(+), 12 deletions(-)
+# M  src/test_env_cli/cli.py
+# A  tests/test_cli.py
 
 commit a0747cfb245789a748922cd9f354a9ad2ce6d6d8
 Author: Ole Jørgen Brønner <ole@example.com>
@@ -97,17 +98,19 @@ line, with a comment header explaining the rules. Within a block the
 line, then the message, as in `git log`. The blank line is only a margin:
 blank lines before the subject are not part of the message, so a block
 without one still parses, and the language server's revert action leaves
-the margin in place.
+the margin in place. A `--stat` block follows the message after one blank
+line, as in `git log --stat`; it is not part of the message either, and
+edits to the message leave it alone.
 
 Flags:
 
 - `--commit-link`: emit a forge URL as a comment under each `commit` line. Off
   by default once the language server provides links.
-- `--stat`: emit the files each commit touched as comments under the
-  `commit` line, after the link comment and before any info lines. Context
-  only: the lines are comments, so reading back ignores them and nothing
-  in them is editable. Off by default; there is no config key, the flag is
-  enough. The block is:
+- `--stat`: emit the files each commit touched as comments after the
+  message, separated from it by one blank line, where `git log --stat`
+  puts them. Context only: the lines are comments, so reading back ignores
+  them and nothing in them is editable. Off by default; there is no config
+  key, the flag is enough. The block is:
   - one summary line in git's `--shortstat` wording, e.g.
     `# 2 files changed, 40 insertions(+), 12 deletions(-)`, or
     `# no files changed` for an empty commit;
