@@ -11,6 +11,9 @@ grammar and the language server.
 
 commit 7dcfdad1afb39b697a8632f0c450c555abe7d5b6
 # https://gitlab.com/group/repo/-/commit/7dcfdad1afb39b697a8632f0c450c555abe7d5b6
+# 2 files changed, 40 insertions(+), 12 deletions(-)
+# M  src/test_env_cli/cli.py
+# A  tests/test_cli.py
     test-env-cli: refactor the CLI interface
 
     The previous subcommand-based interface made it difficult to
@@ -100,6 +103,21 @@ Flags:
 
 - `--commit-link`: emit a forge URL as a comment under each `commit` line. Off
   by default once the language server provides links.
+- `--stat`: emit the files each commit touched as comments under the
+  `commit` line, after the link comment and before any info lines. Context
+  only: the lines are comments, so reading back ignores them and nothing
+  in them is editable. Off by default; there is no config key, the flag is
+  enough. The block is:
+  - one summary line in git's `--shortstat` wording, e.g.
+    `# 2 files changed, 40 insertions(+), 12 deletions(-)`, or
+    `# no files changed` for an empty commit;
+  - one line per file, `# ` then the `--name-status` letter without a
+    similarity score (`M`, `A`, `D`, `T`, `R`, `C`), two spaces, and the
+    path. Renames and copies are written `old -> new`.
+
+  Merge commits get no block: their diff depends on which parent you ask
+  about, and merges are not a goal. The summary line first lets an editor
+  fold the block down to it (see the language server spec).
 - `--info`: emit `Author:` and `Date:` info lines.
 - `--abbrev` / `--no-abbrev`: abbreviated (default) or full shas on the
   `commit` lines. Abbreviation is git's `%h`, unique within the repository
@@ -169,4 +187,6 @@ up from the file looking for a repo and degrades gracefully if none is found.
 - Language server: diagnostics for every error above plus advisory ones
   (subject length, non-blank second line), hover with the original message,
   code actions (revert to original, open in forge, indent selection), document
-  symbols, formatting (fix indentation).
+  symbols, formatting (fix indentation), folding ranges (per block, per
+  body, and per run of comment lines, which is what makes a `--stat` block
+  collapse to its summary line).

@@ -99,7 +99,7 @@ not know about subjects and trailers; the server action does.
 
 Editors that fold by indentation hide every indented line under a `commit`
 line, subject included, so a folded file is a list of shas. The server
-answers `textDocument/foldingRange` with two ranges per block instead:
+answers `textDocument/foldingRange` with these ranges instead:
 
 - **Block.** From the `commit` line to the last non-blank line of the
   block, with `collapsedText` set to `· ` plus the subject. Folded, the
@@ -109,11 +109,19 @@ answers `textDocument/foldingRange` with two ranges per block instead:
 - **Body.** From the subject line to the same end line, so the `commit`
   line, info lines and subject stay visible and only the body folds. Not
   offered when the block has no body.
+- **Comments.** Every run of two or more consecutive comment lines,
+  anywhere in the file, folds from the end of its first line to the end of
+  its last, kind `comment`, no `collapsedText`. Folded, the run is its
+  first line. This is what turns a `--stat` block into its summary line,
+  and the file header into its first line; the server does not know or
+  care which comments came from `--stat`. Blank lines end a run.
 
-Both are `region` folds. In an editor whose fold command picks the nearest
-enclosing range (Zed does), folding from the body hides the body, and
-folding from the `commit` or info lines collapses the whole block. Trailing
-blank lines between blocks are left out so the separation survives folding.
+The block and body ranges are `region` folds. In an editor whose fold
+command picks the nearest enclosing range (Zed does), folding from the body
+hides the body, folding from a comment run hides that run, and folding from
+the `commit` or info lines collapses the whole block, comment runs
+included. Trailing blank lines between blocks are left out so the
+separation survives folding.
 A block with no message gets only the block range, without placeholder.
 
 Zed uses these ranges only when `document_folding_ranges` is `on` for the
