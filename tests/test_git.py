@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from git_reword import git
+from tests.conftest import MESSAGES
 from tests.conftest import git as git_cmd
 
 
@@ -22,6 +23,16 @@ def test_get_commit_empty_message(repo: Path) -> None:
     assert len(commits) == 1
     assert commits[0].sha == commit.sha
     assert commits[0].message == ""
+
+
+def test_get_commits_matches_get_commit(repo: Path) -> None:
+    """The one-log-call parser agrees with the per-commit one, field by field."""
+    shas = git_cmd("rev-list", "--reverse", "HEAD", cwd=repo).split("\n")
+    assert git.get_commits("HEAD", cwd=repo) == [git.get_commit(sha, cwd=repo) for sha in shas]
+
+    commits = git.get_commits("HEAD~2..HEAD", cwd=repo)
+    assert [c.message for c in commits] == MESSAGES[-2:]
+    assert all(c.author == "Test <test@example.com>" and c.date and c.short for c in commits)
 
 
 def test_get_commit_rejects_option_shaped_sha(repo: Path, tmp_path: Path) -> None:

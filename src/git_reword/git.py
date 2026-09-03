@@ -119,31 +119,32 @@ def commit_url(repo_url: str, sha: str) -> str:
     return f"{repo_url}/-/commit/{sha}"
 
 
-def get_commit(sha: str, cwd: Path | str | None = None) -> Commit:
+# %H gives the full sha even for an abbreviated argument. %h is git's own
+# abbreviation, unique in the repository and sized by core.abbrev. Records end
+# with a NUL so a %B with blank lines in it stays one record.
+_LOG_FORMAT = "--format=%H%n%h%n%an <%ae>%n%ad%n%B%x00"
+
+
+def _parse_commit(record: str) -> Commit:
     from git_reword.format import cleanup
 
-    # `sha` may be an abbreviation; %H gives the full one back. %h is git's
-    # own abbreviation, unique in the repository and sized by core.abbrev.
-    # --end-of-options so an option-shaped `sha` cannot turn into a git option.
-    out = run(
-        "log",
-        "-n",
-        "1",
-        "--date=iso",
-        "--format=%H%n%h%n%an <%ae>%n%ad%n%B",
-        "--end-of-options",
-        sha,
-        cwd=cwd,
-    )
-    full, short, author, date, *rest = out.split("\n", 4)
+    full, short, author, date, *rest = record.strip("\n").split("\n", 4)
     message = rest[0] if rest else ""
     return Commit(sha=full, message=cleanup(message), author=author, date=date, short=short)
 
 
+def get_commit(sha: str, cwd: Path | str | None = None) -> Commit:
+    # --end-of-options so an option-shaped `sha` cannot turn into a git option.
+    out = run("log", "-n", "1", "--date=iso", _LOG_FORMAT, "--end-of-options", sha, cwd=cwd)
+    return _parse_commit(out.split("\0", 1)[0])
+
+
 def get_commits(commit_range: str, cwd: Path | str | None = None) -> list[Commit]:
     """All commits in the range, oldest first."""
-    shas = [s for s in run("rev-list", "--reverse", commit_range, cwd=cwd).split("\n") if s]
-    return [get_commit(sha, cwd=cwd) for sha in shas]
+    out = run(
+        "log", "--reverse", "--date=iso", _LOG_FORMAT, "--end-of-options", commit_range, cwd=cwd
+    )
+    return [_parse_commit(record) for record in out.split("\0") if record.strip()]
 
 
 def detect_branch_range() -> str:
