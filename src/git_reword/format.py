@@ -278,5 +278,5 @@ def write(
         if stats is not None and (stat := stats.get(commit.sha)) is not None:
             out.append(f"\n# {stat.summary or 'no files changed'}\n")
             for status, path in stat.files:
-                out.append(f"# {status}  {path}\n")
+                out.append(f"#   {status}  {path}\n")
     return "".join(out)

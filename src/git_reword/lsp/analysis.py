@@ -23,8 +23,8 @@ SOURCE = "git-reword"
 OPEN_COMMIT_COMMAND = "git-reword.openCommit"
 INDENT_FIX_CODES = frozenset({"short-indent", "unindented-line"})
 SUBJECT_SEP = "\u00b7 "  # before the subject in a folded block
-# A `--stat` file line: `# M  path`, or `# R  old -> new` for renames and copies.
-_STAT_LINE_RE = re.compile(r"^# [MADTRC]  (?:.* -> )?(?P<path>.+)$")
+# A `--stat` file line: `#   M  path`, or `#   R  old -> new` for renames and copies.
+_STAT_LINE_RE = re.compile(r"^#\s+[MADTRC]  (?:.* -> )?(?P<path>.+)$")
 
 _SEVERITY = {
     fmt.Severity.ERROR: lsp.DiagnosticSeverity.Error,

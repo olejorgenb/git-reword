@@ -67,7 +67,7 @@ themselves: Zed hands unknown schemes to the desktop's default handler for
 script registers it). The tooltip says "Open in Zed" or "Open in browser".
 
 Paths in a `--stat` block get a document link too: a comment line of the
-form `# <letter>  <path>` links the path to `file://<worktree root>/<path>`
+form `#<spaces><letter>  <path>` links the path to `file://<worktree root>/<path>`
 when that file exists. For a rename or copy, `old -> new`, only the new
 path is linked. The server recognises the shape, not the origin, so a
 hand-written comment of that shape links as well; no worktree root, no

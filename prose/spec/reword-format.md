@@ -20,8 +20,8 @@ commit 7dcfdad1afb39b697a8632f0c450c555abe7d5b6
     autonomy: med
 
 # 2 files changed, 40 insertions(+), 12 deletions(-)
-# M  src/test_env_cli/cli.py
-# A  tests/test_cli.py
+#   M  src/test_env_cli/cli.py
+#   A  tests/test_cli.py
 
 commit a0747cfb245789a748922cd9f354a9ad2ce6d6d8
 Author: Ole Jørgen Brønner <ole@example.com>
@@ -114,9 +114,11 @@ Flags:
   - one summary line in git's `--shortstat` wording, e.g.
     `# 2 files changed, 40 insertions(+), 12 deletions(-)`, or
     `# no files changed` for an empty commit;
-  - one line per file, `# ` then the `--name-status` letter without a
-    similarity score (`M`, `A`, `D`, `T`, `R`, `C`), two spaces, and the
-    path. Renames and copies are written `old -> new`.
+  - one line per file, `#` and three spaces, then the `--name-status`
+    letter without a similarity score (`M`, `A`, `D`, `T`, `R`, `C`), two
+    spaces, and the path. Renames and copies are written `old -> new`. The
+    indent sits inside the comment so the list reads as nested under the
+    summary while staying a comment for the parser and the highlighter.
 
   Merge commits get no block: their diff depends on which parent you ask
   about, and merges are not a goal. The summary line first lets an editor
