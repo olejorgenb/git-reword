@@ -50,7 +50,8 @@ Language `config.toml` cannot set these, so add them to `settings.json`:
   "Reword": {
     "preferred_line_length": 76,
     "wrap_guides": [76],
-    "allow_rewrap": "anywhere"
+    "allow_rewrap": "anywhere",
+    "document_folding_ranges": "on"
   }
 }
 ```
@@ -60,6 +61,12 @@ the indent, so 76 gives the usual 72 columns of text. `allow_rewrap` is
 needed because Zed's default (`in_comments`) makes `editor: rewrap` a no-op
 outside `#` comments. Rewrap stops at blank lines and indent changes, so it
 never joins the subject with the body.
+
+`document_folding_ranges` makes Zed fold with the server's ranges instead
+of by indentation, which would hide the subject along with the body. With
+the cursor in a body, `editor: fold` hides just the body; on the `commit`
+or info lines it collapses the whole block to the `commit` line with the
+subject shown as the fold placeholder.
 
 If the settings do not take effect, check the language name in the status
 bar: it must say `Reword`, not `Plain Text`.

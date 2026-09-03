@@ -46,6 +46,9 @@ anywhere inside a worktree. It provides:
   the commit in the forge (from `origin`), and in Zed open it in Zed's
   commit view
 - document links on shas, and formatting that normalises indentation
+- folding ranges that keep the subject visible: fold the body under a
+  subject, or a whole block down to its `commit` line with the subject as
+  placeholder (Zed needs `document_folding_ranges: "on"` for the language)
 
 Opening a commit uses `window/showDocument` when the editor supports it.
 Zed does not, so there the server runs `xdg-open` (or `open` on macOS) for
