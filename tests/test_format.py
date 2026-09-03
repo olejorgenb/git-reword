@@ -130,6 +130,20 @@ def test_subject_warnings():
     assert codes(result) == ["subject-trailing-period"]
 
 
+def test_subject_too_long_column_follows_the_indent():
+    """A tab-indented subject is one column wide, not four."""
+    long = "x" * 73
+    result = parse(f"commit {SHA_A}\n\t{long}\n")
+    assert codes(result) == ["subject-too-long"]
+    assert result.diagnostics[0].col == 1 + 72
+
+
+def test_subject_trailing_spaces_do_not_count():
+    """Git strips them, so a padded 72 character subject is fine."""
+    result = parse(f"commit {SHA_A}\n    {'x' * 72}    \n")
+    assert codes(result) == []
+
+
 def test_example_file():
     result = parse((DATA / "example.reword").read_text())
     assert [b.sha[:8] for b in result.blocks] == ["7dcfdad1", "a0747cfb", "e7ae1a55", "a7405c21"]

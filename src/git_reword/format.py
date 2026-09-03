@@ -184,7 +184,7 @@ def parse(text: str) -> ParseResult:
                 continue
             if not raw_message:
                 block.subject_line = lineno
-                _check_subject(content, lineno, diagnostics)
+                _check_subject(content, lineno, len(line) - len(content), diagnostics)
             elif len(raw_message) == 1 and content.strip():
                 diagnostics.append(
                     Diagnostic(
@@ -220,15 +220,17 @@ def parse(text: str) -> ParseResult:
     return ParseResult(blocks, diagnostics)
 
 
-def _check_subject(subject: str, lineno: int, diagnostics: list[Diagnostic]) -> None:
-    if len(subject) > SUBJECT_MAX:
+def _check_subject(subject: str, lineno: int, indent: int, diagnostics: list[Diagnostic]) -> None:
+    # Git strips trailing whitespace, so it does not count towards the length.
+    length = len(subject.rstrip())
+    if length > SUBJECT_MAX:
         diagnostics.append(
             Diagnostic(
                 lineno,
-                f"Subject is {len(subject)} characters, keep it under {SUBJECT_MAX}",
+                f"Subject is {length} characters, keep it under {SUBJECT_MAX}",
                 "subject-too-long",
                 Severity.WARNING,
-                col=4 + SUBJECT_MAX,
+                col=indent + SUBJECT_MAX,
             )
         )
     if subject.rstrip().endswith("."):
