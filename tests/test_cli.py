@@ -59,6 +59,14 @@ def test_no_changes(repo: Path):
     assert "No changes detected" in result.stdout
 
 
+def test_eof_on_prompt_cancels(repo: Path):
+    """No terminal on stdin: the confirm prompt treats EOF as no, not a crash."""
+    result = run_reword(repo, REPLACE_EDITOR, "HEAD~3..HEAD", stdin="")
+    assert result.returncode == 1
+    assert "Cancelled" in result.stdout
+    assert messages(repo) == MESSAGES
+
+
 def test_validation_error_keeps_file_and_reports_line(repo: Path):
     break_it = """\
 import sys, pathlib

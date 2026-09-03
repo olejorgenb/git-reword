@@ -107,6 +107,23 @@ def open_editor(editor: str | None, path: Path) -> int:
     return subprocess.run([*cmd, str(path)]).returncode
 
 
+def confirm(prompt: str, *, default: bool) -> bool:
+    """Ask a y/n question. Enter picks the default; EOF (no terminal) means no."""
+    suffix = "[Y/n]" if default else "[y/N]"
+    while True:
+        try:
+            response = input(f"{prompt} {suffix} ").strip().lower()
+        except EOFError:
+            return False
+        if response == "":
+            return default
+        if response in ("y", "yes"):
+            return True
+        if response in ("n", "no"):
+            return False
+        print("Invalid input")
+
+
 def reword(
     commit_range: str,
     *,
@@ -127,7 +144,7 @@ def reword(
     if len(commits) > 100:
         print(f"Warning: {len(commits)} commits is a lot. If this is unexpected, your")
         print("origin/HEAD symref may be stale — fix with: git remote set-head origin --auto")
-        if input("Continue? [y/N] ").lower() != "y":
+        if not confirm("Continue?", default=False):
             print("Cancelled")
             return False
 
@@ -174,15 +191,10 @@ def reword(
             if "\n" in new_msg:
                 print("  (+ body changes)")
 
-        while True:
-            response = input("\nApply these changes? [Y/n] ").lower()
-            if response == "n":
-                print("Cancelled")
-                keep = True
-                return False
-            if response in ("y", ""):
-                break
-            print("Invalid input")
+        if not confirm("\nApply these changes?", default=True):
+            print("Cancelled")
+            keep = True
+            return False
 
         original_head = git.run("rev-parse", "HEAD")
         print(f"\nPre-reword HEAD: {original_head}")
