@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import sys
 from pathlib import Path
 
 from lsprotocol import types as lsp
@@ -9,6 +11,8 @@ from pygls.lsp.server import LanguageServer
 
 from git_reword.lsp.analysis import OPEN_COMMIT_COMMAND, Analysis, Repo
 from git_reword.lsp.open import open_url
+
+log = logging.getLogger("git-reword-lsp")
 
 
 class RewordServer(LanguageServer):
@@ -40,6 +44,7 @@ server = RewordServer()
 @server.feature(lsp.INITIALIZE)
 def initialize(ls: RewordServer, params: lsp.InitializeParams) -> None:
     ls.client = params.client_info.name if params.client_info else None
+    log.info("initialize: client=%r show_document=%s", ls.client, ls.supports_show_document())
 
 
 @server.feature(lsp.TEXT_DOCUMENT_DID_OPEN)
@@ -81,17 +86,26 @@ def document_symbol(ls: RewordServer, params: lsp.DocumentSymbolParams) -> list[
     ),
 )
 def code_action(ls: RewordServer, params: lsp.CodeActionParams) -> list[lsp.CodeAction]:
-    return ls.analysis(params.text_document.uri).code_actions(params.range)
+    actions = ls.analysis(params.text_document.uri).code_actions(params.range)
+    log.info("codeAction line %d: %s", params.range.start.line, [a.title for a in actions])
+    return actions
 
 
 @server.feature(lsp.TEXT_DOCUMENT_DOCUMENT_LINK)
 def document_link(ls: RewordServer, params: lsp.DocumentLinkParams) -> list[lsp.DocumentLink]:
-    return ls.analysis(params.text_document.uri).links()
+    links = ls.analysis(params.text_document.uri).links()
+    log.info("documentLink: %d links", len(links))
+    return links
 
 
 @server.feature(lsp.TEXT_DOCUMENT_FOLDING_RANGE)
 def folding_range(ls: RewordServer, params: lsp.FoldingRangeParams) -> list[lsp.FoldingRange]:
-    return ls.analysis(params.text_document.uri).folding_ranges()
+    ranges = ls.analysis(params.text_document.uri).folding_ranges()
+    log.info(
+        "foldingRange: %s",
+        [(r.start_line, r.end_line, r.collapsed_text) for r in ranges],
+    )
+    return ranges
 
 
 @server.feature(lsp.TEXT_DOCUMENT_FORMATTING)
@@ -111,6 +125,13 @@ def open_commit(ls: RewordServer, url: str) -> None:
 
 
 def main() -> None:
+    # stderr is what editors show as "server logs" (Zed: the language server
+    # log panel). One line per request that is otherwise invisible from the
+    # editor side, so "is Zed asking?" can be answered after the fact.
+    logging.basicConfig(
+        stream=sys.stderr, level=logging.INFO, format="%(asctime)s %(name)s %(message)s"
+    )
+    logging.getLogger("pygls").setLevel(logging.WARNING)  # it echoes every response at INFO
     server.start_io()
 
 
