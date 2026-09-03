@@ -1,0 +1,69 @@
+==================
+Short indent becomes one invalid line, the rest of the message survives
+==================
+commit 7dcfdad1afb39b697a8632f0c450c555abe7d5b6
+    Subject
+  two spaces
+    back to normal
+
+---
+
+(document
+  (commit
+    (commit_line (sha (short_sha)))
+    (message
+      (subject (subject_text))
+      (invalid_line)
+      (message_line (text)))))
+
+==================
+Unindented prose inside a message
+==================
+commit 7dcfdad1afb39b697a8632f0c450c555abe7d5b6
+    Subject
+stray words here
+    more
+
+---
+
+(document
+  (commit
+    (commit_line (sha (short_sha)))
+    (message
+      (subject (subject_text))
+      (invalid_line)
+      (message_line (text)))))
+
+==================
+Stray line before any commit and between header and message
+==================
+stray
+commit 7dcfdad1afb39b697a8632f0c450c555abe7d5b6
+also stray
+    Subject
+
+---
+
+(document
+  (invalid_line)
+  (commit
+    (commit_line (sha (short_sha)))
+    (invalid_line)
+    (message
+      (subject (subject_text)))))
+
+==================
+Info line after the message is invalid
+==================
+commit 7dcfdad1afb39b697a8632f0c450c555abe7d5b6
+    Subject
+Author: too late
+
+---
+
+(document
+  (commit
+    (commit_line (sha (short_sha)))
+    (message
+      (subject (subject_text))
+      (invalid_line))))

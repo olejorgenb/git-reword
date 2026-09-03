@@ -1,0 +1,158 @@
+==================
+Header comments and one commit
+==================
+# git-reword: edit the indented messages.
+# Do not edit `commit` lines.
+
+commit 7dcfdad1afb39b697a8632f0c450c555abe7d5b6
+    Subject line
+
+    Body line one.
+    Body line two.
+
+---
+
+(document
+  (comment)
+  (comment)
+  (blank_line)
+  (commit
+    (commit_line (sha (short_sha)))
+    (message
+      (subject (subject_text))
+      (blank_line)
+      (message_line (text))
+      (message_line (text)))))
+
+==================
+Comment and info lines under the header
+==================
+commit 7dcfdad1afb39b697a8632f0c450c555abe7d5b6
+# https://gitlab.com/g/r/-/commit/7dcfdad1afb39b697a8632f0c450c555abe7d5b6
+Author: Ole <ole@example.com>
+Date:   2026-02-25 05:59:29 +0100
+committer: shares a prefix with the commit keyword
+    Subject
+
+---
+
+(document
+  (commit
+    (commit_line (sha (short_sha)))
+    (comment)
+    (info_line (info_key) (info_value))
+    (info_line (info_key) (info_value))
+    (info_line (info_key) (info_value))
+    (message
+      (subject (subject_text)))))
+
+==================
+Hash lines and deeper indentation inside a message are content
+==================
+commit 7dcfdad1afb39b697a8632f0c450c555abe7d5b6
+    Subject
+
+    # not a comment
+        code block
+# a real comment between message lines
+    Key: value
+
+---
+
+(document
+  (commit
+    (commit_line (sha (short_sha)))
+    (message
+      (subject (subject_text))
+      (blank_line)
+      (message_line (text))
+      (message_line (text))
+      (comment)
+      (message_line (text)))))
+
+==================
+Tab indentation
+==================
+commit 7dcfdad1afb39b697a8632f0c450c555abe7d5b6
+	Subject
+	Body
+
+---
+
+(document
+  (commit
+    (commit_line (sha (short_sha)))
+    (message
+      (subject (subject_text))
+      (message_line (text)))))
+
+==================
+Two commits, blank lines between belong to the first message
+==================
+commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    First
+
+
+commit bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    Second
+
+---
+
+(document
+  (commit
+    (commit_line (sha (short_sha)))
+    (message
+      (subject (subject_text))
+      (blank_line)
+      (blank_line)))
+  (commit
+    (commit_line (sha (short_sha)))
+    (message
+      (subject (subject_text)))))
+
+==================
+Subject overflow past 72 characters
+==================
+commit 7dcfdad1afb39b697a8632f0c450c555abe7d5b6
+    123456789012345678901234567890123456789012345678901234567890123456789012overflow
+
+---
+
+(document
+  (commit
+    (commit_line (sha (short_sha)))
+    (message
+      (subject (subject_text) (overflow)))))
+
+==================
+Indented blank lines are blank lines
+==================
+commit 7dcfdad1afb39b697a8632f0c450c555abe7d5b6
+    Subject
+    
+        
+	
+    Body
+
+---
+
+(document
+  (commit
+    (commit_line (sha (short_sha)))
+    (message
+      (subject (subject_text))
+      (blank_line)
+      (blank_line)
+      (blank_line)
+      (message_line (text)))))
+
+==================
+Commit without a message
+==================
+commit 7dcfdad1afb39b697a8632f0c450c555abe7d5b6
+
+---
+
+(document
+  (commit
+    (commit_line (sha (short_sha)))))

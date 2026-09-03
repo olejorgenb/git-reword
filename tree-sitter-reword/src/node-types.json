@@ -1,0 +1,241 @@
+[
+  {
+    "type": "blank_line",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "commit",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "blank_line",
+          "named": true
+        },
+        {
+          "type": "comment",
+          "named": true
+        },
+        {
+          "type": "commit_line",
+          "named": true
+        },
+        {
+          "type": "info_line",
+          "named": true
+        },
+        {
+          "type": "invalid_line",
+          "named": true
+        },
+        {
+          "type": "message",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "commit_line",
+    "named": true,
+    "fields": {
+      "sha": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "sha",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "document",
+    "named": true,
+    "root": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "blank_line",
+          "named": true
+        },
+        {
+          "type": "comment",
+          "named": true
+        },
+        {
+          "type": "commit",
+          "named": true
+        },
+        {
+          "type": "invalid_line",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "info_line",
+    "named": true,
+    "fields": {
+      "key": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "info_key",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "info_value",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "message",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "blank_line",
+          "named": true
+        },
+        {
+          "type": "comment",
+          "named": true
+        },
+        {
+          "type": "invalid_line",
+          "named": true
+        },
+        {
+          "type": "message_line",
+          "named": true
+        },
+        {
+          "type": "subject",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "message_line",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "text",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "overflow",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "sha",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "short_sha",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "subject",
+    "named": true,
+    "fields": {
+      "overflow": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "overflow",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "subject_text",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "text",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "\n",
+    "named": false
+  },
+  {
+    "type": "comment",
+    "named": true
+  },
+  {
+    "type": "commit",
+    "named": false
+  },
+  {
+    "type": "info_key",
+    "named": true
+  },
+  {
+    "type": "info_value",
+    "named": true
+  },
+  {
+    "type": "invalid_line",
+    "named": true
+  },
+  {
+    "type": "short_sha",
+    "named": true
+  },
+  {
+    "type": "subject_text",
+    "named": true
+  }
+]

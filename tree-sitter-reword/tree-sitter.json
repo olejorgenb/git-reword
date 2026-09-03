@@ -1,0 +1,16 @@
+{
+  "grammars": [
+    {
+      "name": "reword",
+      "camelcase": "Reword",
+      "scope": "source.reword",
+      "path": ".",
+      "file-types": ["reword", "REWORD_EDITMSG"],
+      "highlights": "queries/highlights.scm"
+    }
+  ],
+  "metadata": {
+    "version": "0.1.0",
+    "description": "Tree-sitter grammar for git-reword edit files"
+  }
+}
