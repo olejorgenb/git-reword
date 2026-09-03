@@ -30,6 +30,34 @@ instead of todo order is a small change.
   LSP side (swap two block ranges in one `WorkspaceEdit`). The outline
   already shows the order.
 
-Related: the commit-tree chain idea (build the new commits directly and
-`update-ref`, no rebase) handles reordering less naturally, since it
-assumes trees stay the same. Reordering needs the real rebase.
+## Rethink 2026-09-04: no rebase at all
+
+Editor side is already solved: with the LSP folding ranges, fold-all
+collapses each commit to its `commit` line, and Zed moves a folded block
+as one unit (move line up/down unfolds, moves, refolds; cut and paste on
+the folded line take the whole block). The message travels with the sha.
+
+Apply side: the rebase design has a conflict problem. Rewording never
+conflicts, so `apply.py` assumes the rebase runs to completion inside the
+tool; the scripted editors live in a temp dir. Reordering can conflict,
+and after `git rebase --continue` from the shell the remaining `reword`
+lines open the user's real editor with the old messages.
+
+Better: check for conflicts up front with `git merge-tree --write-tree`
+(git 2.38+), which replays a commit onto a new parent in memory and
+exits non-zero with the conflicting paths. For each commit in file order,
+merge-base = original parent, sides = chain so far and the commit. Once
+the trees exist, the rebase is redundant: `commit-tree` each with the new
+message and original author, `update-ref` the branch once at the end.
+
+- Atomic: the whole chain or nothing. No stopped rebase, no abort text.
+- Simpler than today: the sequence and message editor scripts go away.
+  Reword-only is the case where every merge is trivial.
+- A dirty worktree is fine when the final tree equals the old HEAD tree
+  (always for reword-only); otherwise require a clean one, like rebase.
+- No hooks run. Signing works through `commit-tree` and `commit.gpgsign`.
+- Merges: refuse reordering, keep the current behaviour. Not a goal.
+
+Not started; parked as costing more than it tastes on 2026-09-04, but the
+merge-tree route makes it a loop of three plumbing commands plus a spec
+line saying order matters.
