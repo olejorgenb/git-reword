@@ -355,7 +355,7 @@ def test_stat_writes_foldable_comments(repo: Path):
     assert result.returncode == 0, result.stdout + result.stderr
     assert "No changes detected" in result.stdout
     text = copy.read_text()
-    assert "\n# 1 file changed, 1 insertion(+)\n# A  f3\n\n    Third commit\n" in text
+    assert "\n    Body\n\n# 1 file changed, 1 insertion(+)\n# A  f3\n" in text
     assert "# A  f2\n" in text
 
     plain = run_reword(repo, editor, "HEAD~2..HEAD")

@@ -124,8 +124,10 @@ class Analysis:
     def message_lines(self, block: fmt.Block) -> tuple[int, int]:
         """[start, end) of the lines holding the message: everything after the
         comment, info and blank lines that directly follow the `commit` line
-        (the writer puts a blank margin before the subject; it is not part
-        of the message and edits must leave it alone)."""
+        and before the comment and blank lines that end the block (the
+        writer puts a blank margin before the subject and a `--stat` block
+        after the message; neither is part of the message and edits must
+        leave them alone)."""
         start = block.line + 1
         while start < block.end_line and (
             self.lines[start].startswith("#")
@@ -133,7 +135,12 @@ class Analysis:
             or fmt._INFO_RE.match(self.lines[start])
         ):
             start += 1
-        return start, block.end_line
+        end = block.end_line
+        while end > start and (
+            self.lines[end - 1].startswith("#") or not self.lines[end - 1].strip()
+        ):
+            end -= 1
+        return start, end
 
     def paragraph_at(self, line: int) -> tuple[int, int] | None:
         """[start, end) of the body paragraph containing `line`: a run of
@@ -360,8 +367,7 @@ class Analysis:
             original = self.original(block)
             assert original is not None
             start, end = self.message_lines(block)
-            is_last = block is self.result.blocks[-1]
-            new_text = _indent(original.message) + ("" if is_last else "\n")
+            new_text = _indent(original.message)
             actions.append(
                 lsp.CodeAction(
                     title=f"Revert {block.sha[:8]} to its original message",

@@ -29,8 +29,9 @@ The full format is specified in `prose/spec/reword-format.md`.
 
 Flags: `--commit-link` adds a forge URL comment per commit, `--info` adds
 `Author:` and `Date:` lines, `--stat` adds the files each commit touched
-as comment lines (a summary, then one `M`/`A`/`D`/`R` line per file; merge
-commits get none), `--no-abbrev` writes full shas instead of
+as comment lines after the message, as `git log --stat` does (a summary,
+then one `M`/`A`/`D`/`R` line per file; merge commits get none),
+`--no-abbrev` writes full shas instead of
 git's abbreviations (`--abbrev`, the default), `--continue` reopens the
 file from an aborted run, `--force` discards it. Abbreviated shas are
 resolved against the commits of the range when the file is read back;

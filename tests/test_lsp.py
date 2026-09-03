@@ -334,6 +334,22 @@ def test_revert_last_block_keeps_file_shape(edit_file: Path):
     assert apply_edits(text, actions[0].edit.changes[a.uri]) == original
 
 
+def test_revert_leaves_stat_block_alone(edit_file: Path, repo: Path):
+    """A --stat block after the message is not part of it: revert stops
+    before it, for a middle block and for the last one."""
+    commits = git.get_commits("HEAD~3..HEAD", cwd=repo)
+    original = fmt.write(commits, stats=git.get_stats("HEAD~3..HEAD", cwd=repo))
+    assert original.count("# A  f") == 3
+    for subject in ("Second commit", "Third commit"):
+        text = original.replace(f"    {subject}", f"    {subject}, edited")
+        a = analyse(edit_file, text)
+        block = next(b for b in a.result.blocks if a.changed(b))
+        actions = a.code_actions(
+            lsp.Range(lsp.Position(block.line, 0), lsp.Position(block.line, 0))
+        )
+        assert apply_edits(text, actions[0].edit.changes[a.uri]) == original
+
+
 def test_formatting(edit_file: Path):
     original = edit_file.read_text()
     text = original.replace("    Body text", "  Body text  ").replace(
