@@ -311,3 +311,13 @@ def test_resolve_cases(tmp_path: Path, capsys):
 
     none, out = run("commit aaaa2222\n    B\ncommit aaaa1111\n    A\n", capsys)
     assert none is None and "not in the original order" in out
+
+
+def test_resolve_malformed_sha_reported_once(tmp_path: Path, capsys):
+    """A sha the parser rejected is not also reported as unknown."""
+    run = _resolver(tmp_path)
+    none, out = run("commit zzzz\n    A\ncommit aaaa2222\n    B\n", capsys)
+    assert none is None
+    assert "Not a sha" in out
+    assert "missing commits: aaaa1111" in out
+    assert "unknown commit" not in out

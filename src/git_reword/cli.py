@@ -43,7 +43,11 @@ def resolve(
 
     messages: dict[str, str] = {}
     edited: list[str] = []
+    # A sha the parser rejected is already reported; do not call it unknown too.
+    bad = {d.line for d in result.diagnostics if d.code == "bad-sha"}
     for b in result.blocks:
+        if b.line in bad:
+            continue
         matches = [c for c in commits if c.sha.startswith(b.sha)]
         if not matches:
             print(f"{path}:{b.line + 1}: error: unknown commit {b.sha[:8]}")
