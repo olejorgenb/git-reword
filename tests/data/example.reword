@@ -1,0 +1,31 @@
+# git-reword: edit the indented messages. Column-0 lines are structure.
+# Do not edit, reorder, add or remove `commit` lines.
+
+commit 7dcfdad1afb39b697a8632f0c450c555abe7d5b6
+# https://gitlab.com/group/repo/-/commit/7dcfdad1afb39b697a8632f0c450c555abe7d5b6
+    test-env-cli: refactor the CLI interface
+
+    The previous subcommand-based interface made it difficult to
+    perform multiple operations in a single invocation.
+
+    # A markdown heading inside the body, must stay content
+    - a bullet
+        indented code in the body
+
+    ai-agent: Claude 4 Opus
+    autonomy: med
+
+commit a0747cfb245789a748922cd9f354a9ad2ce6d6d8
+Author: Ole Jørgen Brønner <ole@example.com>
+Date:   2026-02-25 05:59:29 +0100
+committer: someone
+	tab indented subject line
+
+commit e7ae1a5556aebe836309f3c75e4d2a3966632b78
+    this subject line is deliberately far too long, longer than seventy-two characters for sure
+    second line without blank, git would frown
+
+commit a7405c21f44c3eb306a21c790486452531843309
+    fixup! test-env-cli: Refactor time range parsing and improve defaults
+  two-space dedent, should be an error
+    back to normal

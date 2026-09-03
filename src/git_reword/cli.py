@@ -6,7 +6,7 @@ import os
 import shlex
 import subprocess
 import sys
-import tempfile
+from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -15,6 +15,8 @@ from git_reword import apply as apply_mod
 from git_reword import format as format_mod
 from git_reword import git
 from git_reword.git import Commit, GitError
+
+EDIT_FILE = "REWORD_EDITMSG"
 
 
 def _env_truthy(name: str) -> bool:
@@ -27,25 +29,43 @@ app = typer.Typer(
 )
 
 
-def validate(commits: list[Commit], edited: dict[str, str]) -> bool:
-    original_shas = {c.sha for c in commits}
-    edited_shas = set(edited)
-    if original_shas == edited_shas:
-        return True
-    if missing := original_shas - edited_shas:
-        print(f"Error: Missing commits in edited file: {missing}")
-    if extra := edited_shas - original_shas:
-        print(f"Error: Unknown commits in edited file: {extra}")
-    return False
+def validate(commits: list[Commit], result: format_mod.ParseResult, path: Path) -> bool:
+    """Print every problem as path:line: message. True when clean."""
+    ok = True
+    for d in result.errors:
+        print(f"{path}:{d.line + 1}: error: {d.message}")
+        ok = False
+
+    original = [c.sha for c in commits]
+    edited = [b.sha for b in result.blocks]
+    if missing := set(original) - set(edited):
+        print(f"{path}: error: missing commits: {', '.join(s[:8] for s in sorted(missing))}")
+        ok = False
+    for b in result.blocks:
+        if b.sha not in original:
+            print(f"{path}:{b.line + 1}: error: unknown commit {b.sha[:8]}")
+            ok = False
+    if ok and edited != original:
+        print(f"{path}: error: commits are not in the original order")
+        ok = False
+    return ok
 
 
-def open_editor(editor: str | None, path: str) -> int:
+def open_editor(editor: str | None, path: Path) -> int:
     editor = editor or os.environ.get("EDITOR", "vim")
     cmd = shlex.split(editor) if " " in editor else [editor]
-    return subprocess.run([*cmd, path]).returncode
+    return subprocess.run([*cmd, str(path)]).returncode
 
 
-def reword(commit_range: str, editor: str | None, commit_link: bool) -> bool:
+def reword(
+    commit_range: str,
+    *,
+    editor: str | None,
+    commit_link: bool,
+    info: bool,
+    continue_: bool,
+    force: bool,
+) -> bool:
     commits = git.get_commits(commit_range)
     if not commits:
         print("No commits found in the specified range")
@@ -60,26 +80,35 @@ def reword(commit_range: str, editor: str | None, commit_link: bool) -> bool:
             print("Cancelled")
             return False
 
-    content = format_mod.write(commits, repo_url=git.repo_url(), commit_link=commit_link)
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
-        f.write(content)
-        temp_file = f.name
+    edit_file = git.git_dir() / EDIT_FILE
+    if continue_:
+        if not edit_file.exists():
+            print(f"Error: nothing to continue, {edit_file} does not exist")
+            return False
+    else:
+        if edit_file.exists() and edit_file.read_text().strip() and not force:
+            print(f"Error: {edit_file} exists from an earlier run.")
+            print("Use --continue to keep editing it, or --force to start over.")
+            return False
+        content = format_mod.write(
+            commits, repo_url=git.repo_url(), commit_link=commit_link, info=info
+        )
+        edit_file.write_text(content)
 
-    keep_temp = False
+    keep = False
     try:
-        if open_editor(editor, temp_file) != 0:
+        if open_editor(editor, edit_file) != 0:
             print("Editor exited with error")
-            keep_temp = True
+            keep = True
             return False
 
-        with open(temp_file) as f:
-            edited = format_mod.parse(f.read())
+        result = format_mod.parse(edit_file.read_text())
 
-        if not validate(commits, edited):
-            keep_temp = True
+        if not validate(commits, result, edit_file):
+            keep = True
             return False
 
-        changes = apply_mod.changed_commits(commits, edited)
+        changes = apply_mod.changed_commits(commits, result.messages)
         if not changes:
             print("No changes detected")
             return True
@@ -96,7 +125,7 @@ def reword(commit_range: str, editor: str | None, commit_link: bool) -> bool:
             response = input("\nApply these changes? [Y/n] ").lower()
             if response == "n":
                 print("Cancelled")
-                keep_temp = True
+                keep = True
                 return False
             if response in ("y", ""):
                 break
@@ -106,21 +135,22 @@ def reword(commit_range: str, editor: str | None, commit_link: bool) -> bool:
         print(f"\nPre-reword HEAD: {original_head}")
         print(f"To revert:       git reset --hard {original_head}")
 
-        success = apply_mod.apply(commits, edited)
+        success = apply_mod.apply(commits, result.messages)
         if not success:
-            keep_temp = True
+            keep = True
         return success
 
     except KeyboardInterrupt:
-        keep_temp = True
+        keep = True
         raise
 
     finally:
-        if keep_temp:
-            print(f"Edits preserved at: {temp_file}")
+        if keep:
+            print(f"Edits preserved at: {edit_file}")
+            print("Rerun with --continue to pick up where you left off.")
         else:
             try:
-                os.unlink(temp_file)
+                edit_file.unlink()
             except OSError:
                 pass
 
@@ -140,8 +170,18 @@ def reword_command(
     editor: Annotated[
         str | None, typer.Option(help="Editor to use (defaults to $EDITOR or vim)")
     ] = None,
-    no_commit_link: Annotated[
-        bool, typer.Option("--no-commit-link", help="Omit forge commit URL comments")
+    commit_link: Annotated[
+        bool, typer.Option("--commit-link", help="Add a forge commit URL comment per commit")
+    ] = False,
+    info: Annotated[
+        bool, typer.Option("--info", help="Add Author and Date info lines per commit")
+    ] = False,
+    continue_: Annotated[
+        bool,
+        typer.Option("--continue", help="Reopen the edit file left by an earlier run"),
+    ] = False,
+    force: Annotated[
+        bool, typer.Option("--force", help="Overwrite an edit file left by an earlier run")
     ] = False,
 ) -> None:
     """Bulk edit git commit messages in your editor."""
@@ -155,7 +195,14 @@ def reword_command(
         elif ".." not in commit_range:
             commit_range = f"{commit_range}^..{commit_range}"
 
-        success = reword(commit_range, editor, commit_link=not no_commit_link)
+        success = reword(
+            commit_range,
+            editor=editor,
+            commit_link=commit_link,
+            info=info,
+            continue_=continue_,
+            force=force,
+        )
     except GitError as e:
         print(f"Error: {e}")
         raise typer.Exit(1) from None

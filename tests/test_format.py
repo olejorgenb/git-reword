@@ -1,26 +1,159 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
+
 from git_reword import format as format_mod
+from git_reword.format import Severity, cleanup, parse, write
 from git_reword.git import Commit
 
+DATA = Path(__file__).parent / "data"
 SHA_A = "a" * 40
 SHA_B = "b" * 40
 
 
-def test_round_trip():
-    commits = [
-        Commit(SHA_A, "First subject", "Body line one\n\nBody line two"),
-        Commit(SHA_B, "Second subject", ""),
+def codes(result: format_mod.ParseResult) -> list[str]:
+    return [d.code for d in result.diagnostics]
+
+
+def test_round_trip_keeps_hashes_tabs_and_indentation():
+    message = "Subject\n\n# not a comment\n- bullet\n    code\n\tless code\n\nKey: value"
+    content = write([Commit(SHA_A, message)])
+    result = parse(content)
+    assert result.errors == []
+    assert result.messages == {SHA_A: message}
+
+
+def test_round_trip_two_commits_in_order():
+    content = write([Commit(SHA_A, "First"), Commit(SHA_B, "Second\n\nBody")])
+    result = parse(content)
+    assert [b.sha for b in result.blocks] == [SHA_A, SHA_B]
+    assert result.messages == {SHA_A: "First", SHA_B: "Second\n\nBody"}
+
+
+def test_write_optional_lines():
+    commit = Commit(SHA_A, "Subject", author="Ole <ole@x>", date="2026-02-25 05:59:29 +0100")
+    plain = write([commit])
+    assert "Author:" not in plain and "/-/commit/" not in plain
+
+    full = write([commit], repo_url="https://gl/g/r", commit_link=True, info=True)
+    assert f"# https://gl/g/r/-/commit/{SHA_A}\n" in full
+    assert "Author: Ole <ole@x>\n" in full
+    assert "Date:   2026-02-25 05:59:29 +0100\n" in full
+    assert full.endswith("\n")
+
+    result = parse(full)
+    assert result.errors == []
+    assert result.blocks[0].info == {"Author": "Ole <ole@x>", "Date": "2026-02-25 05:59:29 +0100"}
+
+
+def test_tab_indent_and_trailing_whitespace_are_tolerated():
+    content = f"commit {SHA_A}\n\tSubject   \n\n\tBody  \n   \n"
+    result = parse(content)
+    assert result.errors == []
+    assert result.messages == {SHA_A: "Subject\n\nBody"}
+
+
+def test_comments_anywhere_are_ignored():
+    content = f"# top\ncommit {SHA_A}\n# under header\n    Subject\n# between\n    Body\n# end\n"
+    result = parse(content)
+    assert result.errors == []
+    assert result.messages == {SHA_A: "Subject\nBody"}
+
+
+def test_missing_trailing_newline():
+    result = parse(f"commit {SHA_A}\n    Subject")
+    assert result.errors == []
+    assert result.messages == {SHA_A: "Subject"}
+
+
+def test_empty_message():
+    result = parse(f"commit {SHA_A}\n\n# only a comment\n")
+    assert codes(result) == ["empty-message"]
+    assert result.blocks[0].message == ""
+
+
+def test_short_indent_is_error_with_line_number():
+    result = parse(f"commit {SHA_A}\n    Subject\n  dedented\n    back\n")
+    [d] = result.errors
+    assert d.code == "short-indent"
+    assert d.line == 2
+    # The rest of the block still parses.
+    assert result.messages == {SHA_A: "Subject\nback"}
+
+
+def test_unindented_line_hints_depend_on_position():
+    before = parse("stray\n")
+    assert codes(before) == ["unindented-line"]
+    assert "`commit <sha>`" in before.diagnostics[0].message
+
+    after_header = parse(f"commit {SHA_A}\nstray\n    Subject\n")
+    assert codes(after_header) == ["unindented-line"]
+    assert "info line" in after_header.diagnostics[0].message
+
+    in_message = parse(f"commit {SHA_A}\n    Subject\nstray\n")
+    assert codes(in_message) == ["unindented-line"]
+    assert "indented by 4 spaces" in in_message.diagnostics[0].message
+
+
+def test_info_line_after_message_is_error():
+    result = parse(f"commit {SHA_A}\n    Subject\nAuthor: x\n")
+    assert codes(result) == ["unindented-line"]
+
+
+def test_bad_and_duplicate_sha():
+    result = parse(f"commit abc123\n    One\ncommit {SHA_A}\n    Two\ncommit {SHA_A}\n    Three\n")
+    assert codes(result) == ["bad-sha", "duplicate-sha"]
+    assert result.diagnostics[0].col == 7
+    assert result.diagnostics[1].line == 4
+
+
+def test_orphan_message_line():
+    result = parse("    Subject\n")
+    assert codes(result) == ["orphan-line"]
+    assert result.blocks == []
+
+
+def test_subject_warnings():
+    long = "x" * 73
+    result = parse(f"commit {SHA_A}\n    {long}\n    second\n")
+    assert codes(result) == ["subject-too-long", "second-line-not-blank"]
+    assert all(d.severity is Severity.WARNING for d in result.diagnostics)
+    assert result.errors == []
+    assert result.diagnostics[0].col == 4 + 72
+
+    result = parse(f"commit {SHA_A}\n    Ends with period.\n")
+    assert codes(result) == ["subject-trailing-period"]
+
+
+def test_example_file():
+    result = parse((DATA / "example.reword").read_text())
+    assert [b.sha[:8] for b in result.blocks] == ["7dcfdad1", "a0747cfb", "e7ae1a55", "a7405c21"]
+    assert result.blocks[0].message.startswith("test-env-cli: refactor the CLI interface\n\n")
+    assert "# A markdown heading inside the body" in result.blocks[0].message
+    assert "    indented code in the body" in result.blocks[0].message
+    assert result.blocks[0].message.endswith("ai-agent: Claude 4 Opus\nautonomy: med")
+    assert result.blocks[1].info["committer"] == "someone"
+    assert result.blocks[1].message == "tab indented subject line"
+    assert [(d.code, d.line) for d in result.diagnostics] == [
+        ("subject-too-long", 24),
+        ("second-line-not-blank", 25),
+        ("short-indent", 29),
+        ("second-line-not-blank", 30),
     ]
-    content = format_mod.write(commits, repo_url="https://x/y", commit_link=True)
-    edited = format_mod.parse(content)
-    assert edited == {
-        SHA_A: "First subject\n\nBody line one\n\nBody line two",
-        SHA_B: "Second subject",
-    }
 
 
-def test_empty_message_is_omitted():
-    content = format_mod.write([Commit(SHA_A, "gone", "")], repo_url=None, commit_link=False)
-    content = content.replace("gone", "")
-    assert format_mod.parse(content) == {}
+@pytest.mark.parametrize(
+    ("raw", "clean"),
+    [
+        ("Subject", "Subject"),
+        ("\n\nSubject\n\n", "Subject"),
+        ("Subject  \n\n\n\nBody \n", "Subject\n\nBody"),
+        ("Subject\n\n# kept\nBody", "Subject\n\n# kept\nBody"),
+        ("", ""),
+        ("   \n\n", ""),
+    ],
+)
+def test_cleanup(raw: str, clean: str):
+    assert cleanup(raw) == clean
