@@ -46,6 +46,30 @@ def git_dir(cwd: Path | str | None = None) -> Path:
     return Path(run("rev-parse", "--absolute-git-dir", cwd=cwd))
 
 
+def toplevel(cwd: Path | str | None = None) -> Path | None:
+    """Root of the working tree, or None without one (bare repo, inside .git)."""
+    try:
+        return Path(run("rev-parse", "--show-toplevel", cwd=cwd))
+    except GitError:
+        return None
+
+
+def common_dir(cwd: Path | str | None = None) -> Path:
+    """The git dir shared by all worktrees of the repository."""
+    return Path(run("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=cwd))
+
+
+def is_ignored(path: Path | str, cwd: Path | str | None = None) -> bool:
+    result = subprocess.run(
+        ["git", "check-ignore", "-q", "--", str(path)], capture_output=True, text=True, cwd=cwd
+    )
+    if result.returncode == 0:
+        return True
+    if result.returncode == 1:
+        return False
+    raise GitError(result.stderr.strip() or f"git check-ignore exited {result.returncode}")
+
+
 def repo_url(cwd: Path | str | None = None) -> str | None:
     """Derive the forge project URL from the origin remote."""
     try:

@@ -50,7 +50,7 @@ def test_reword_preserves_hash_lines_and_rewrites_only_changed(repo: Path):
     ]
     after = git("rev-list", "HEAD", cwd=repo).split()
     assert after[2] == before[2], "unchanged first commit keeps its sha"
-    assert not (repo / ".git" / "REWORD_EDITMSG").exists()
+    assert not (repo / "REWORD_EDITMSG").exists()
 
 
 def test_no_changes(repo: Path):
@@ -67,7 +67,7 @@ p.write_text(p.read_text().replace("    Third commit", "  Third commit"))
 """
     result = run_reword(repo, break_it, "HEAD~3..HEAD")
     assert result.returncode == 1
-    edit_file = repo / ".git" / "REWORD_EDITMSG"
+    edit_file = repo / "REWORD_EDITMSG"
     assert f"{edit_file}:" in result.stdout
     assert "error:" in result.stdout
     assert edit_file.exists()
@@ -87,6 +87,50 @@ p.write_text(p.read_text().replace("  Third commit", "    Third commit (fixed)")
     result = run_reword(repo, fix_it, "HEAD~3..HEAD", "--continue")
     assert result.returncode == 0, result.stdout + result.stderr
     assert messages(repo)[3] == "Third commit (fixed)\n\nBody"
+
+
+EXCLUDE_EDITOR = """\
+import sys, pathlib
+p = pathlib.Path(sys.argv[1])
+assert p.name == "REWORD_EDITMSG"
+# The file must be ignored while the editor has it open.
+import subprocess
+subprocess.run(["git", "check-ignore", "-q", p.name], cwd=p.parent, check=True)
+"""
+
+
+def test_edit_file_is_excluded_once(repo: Path):
+    exclude = repo / ".git" / "info" / "exclude"
+    for _ in range(2):
+        result = run_reword(repo, EXCLUDE_EDITOR, "HEAD~3..HEAD")
+        assert result.returncode == 0, result.stdout + result.stderr
+    assert exclude.read_text().splitlines().count("REWORD_EDITMSG") == 1
+    assert "# added by git-reword" in exclude.read_text()
+
+
+def test_gitignore_entry_leaves_exclude_alone(repo: Path):
+    (repo / ".gitignore").write_text("REWORD_EDITMSG\n")
+    git("add", ".gitignore", cwd=repo)
+    git("commit", "-q", "-m", "ignore", cwd=repo)
+    result = run_reword(repo, EXCLUDE_EDITOR, "HEAD~4..HEAD~1")
+    assert result.returncode == 0, result.stdout + result.stderr
+    exclude = repo / ".git" / "info" / "exclude"
+    assert not exclude.exists() or "REWORD_EDITMSG" not in exclude.read_text()
+
+
+def test_linked_worktree_uses_its_own_root(repo: Path, tmp_path_factory):
+    linked = tmp_path_factory.mktemp("linked")
+    git("worktree", "add", "-q", str(linked), "-b", "linked", cwd=repo)
+    keep_it = """\
+import sys, pathlib
+p = pathlib.Path(sys.argv[1])
+p.write_text(p.read_text().replace("    Third commit", "  Third commit"))
+"""
+    result = run_reword(linked, keep_it, "HEAD~3..HEAD")
+    assert result.returncode == 1
+    assert (linked / "REWORD_EDITMSG").exists()
+    assert not (repo / "REWORD_EDITMSG").exists()
+    assert "REWORD_EDITMSG" in (repo / ".git" / "info" / "exclude").read_text()
 
 
 def test_single_commit_argument(repo: Path):

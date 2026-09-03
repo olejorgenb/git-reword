@@ -51,6 +51,39 @@ def validate(commits: list[Commit], result: format_mod.ParseResult, path: Path) 
     return ok
 
 
+def edit_file_path() -> Path:
+    """`<worktree root>/REWORD_EDITMSG`, or under the git dir without a worktree."""
+    root = git.toplevel()
+    return (root if root is not None else git.git_dir()) / EDIT_FILE
+
+
+EXCLUDE_MARKER = "# added by git-reword"
+
+
+def ensure_excluded(edit_file: Path) -> None:
+    """Make sure the edit file is ignored, via info/exclude in the common git dir.
+
+    Leaves things alone when it is already ignored (e.g. by .gitignore) or
+    lives under the git dir. Failure only warns: a stray untracked file is
+    annoying, not dangerous.
+    """
+    try:
+        if edit_file.is_relative_to(git.git_dir()):
+            return
+        if git.is_ignored(edit_file.name, cwd=edit_file.parent):
+            return
+        exclude = git.common_dir() / "info" / "exclude"
+        existing = exclude.read_text() if exclude.exists() else ""
+        if EDIT_FILE in existing.splitlines():
+            return
+        exclude.parent.mkdir(exist_ok=True)
+        prefix = "" if existing == "" or existing.endswith("\n") else "\n"
+        with exclude.open("a") as f:
+            f.write(f"{prefix}{EXCLUDE_MARKER}\n{EDIT_FILE}\n")
+    except (GitError, OSError) as e:
+        print(f"Warning: could not add {EDIT_FILE} to info/exclude: {e}")
+
+
 def open_editor(editor: str | None, path: Path) -> int:
     editor = editor or os.environ.get("EDITOR", "vim")
     cmd = shlex.split(editor) if " " in editor else [editor]
@@ -80,7 +113,7 @@ def reword(
             print("Cancelled")
             return False
 
-    edit_file = git.git_dir() / EDIT_FILE
+    edit_file = edit_file_path()
     if continue_:
         if not edit_file.exists():
             print(f"Error: nothing to continue, {edit_file} does not exist")
@@ -93,6 +126,7 @@ def reword(
         content = format_mod.write(
             commits, repo_url=git.repo_url(), commit_link=commit_link, info=info
         )
+        ensure_excluded(edit_file)
         edit_file.write_text(content)
 
     keep = False
