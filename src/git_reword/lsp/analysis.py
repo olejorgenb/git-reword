@@ -7,6 +7,7 @@ Results are lsprotocol types so the server can hand them straight back.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
@@ -22,6 +23,8 @@ SOURCE = "git-reword"
 OPEN_COMMIT_COMMAND = "git-reword.openCommit"
 INDENT_FIX_CODES = frozenset({"short-indent", "unindented-line"})
 SUBJECT_SEP = "\u00b7 "  # before the subject in a folded block
+# A `--stat` file line: `# M  path`, or `# R  old -> new` for renames and copies.
+_STAT_LINE_RE = re.compile(r"^# [MADTRC]  (?:.* -> )?(?P<path>.+)$")
 
 _SEVERITY = {
     fmt.Severity.ERROR: lsp.DiagnosticSeverity.Error,
@@ -280,6 +283,18 @@ class Analysis:
             if fmt._SHA_RE.match(b.sha) and (target := self.link_target(self.full_sha(b))):
                 url, tooltip = target
                 out.append(lsp.DocumentLink(range=self.sha_range(b), target=url, tooltip=tooltip))
+        root = self.repo.root if self.repo else None
+        if root is None:
+            return out
+        for i, line in enumerate(self.lines):
+            if (m := _STAT_LINE_RE.match(line)) and (root / m["path"]).is_file():
+                out.append(
+                    lsp.DocumentLink(
+                        range=_range(i, m.start("path"), m.end("path")),
+                        target=(root / m["path"]).as_uri(),
+                        tooltip="Open file",
+                    )
+                )
         return out
 
     def folding_ranges(self) -> list[lsp.FoldingRange]:

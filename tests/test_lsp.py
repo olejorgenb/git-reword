@@ -142,6 +142,20 @@ def test_links(edit_file: Path):
     )
 
 
+def test_stat_paths_link_to_files(edit_file: Path, repo: Path):
+    commits = git.get_commits("HEAD~3..HEAD", cwd=repo)
+    text = fmt.write(commits, stats=git.get_stats("HEAD~3..HEAD", cwd=repo))
+    text = text.replace("# A  f3\n", "# A  f3\n# R  f0 -> f2\n# D  gone\n")
+    a = analyse(edit_file, text)
+    paths = [x for x in a.links() if x.tooltip == "Open file"]
+    # f1, f2, f3 from the stats, f2 again as the rename target; `gone` does not exist.
+    assert [x.target for x in paths] == [(repo / f).as_uri() for f in ("f1", "f2", "f3", "f2")]
+    rename = paths[-1]
+    line = a.lines[rename.range.start.line]
+    assert line[rename.range.start.character : rename.range.end.character] == "f2"
+    assert line.startswith("# R  f0 -> ")
+
+
 def test_folding_ranges(edit_file: Path):
     a = analyse(edit_file)
     ranges = a.folding_ranges()
