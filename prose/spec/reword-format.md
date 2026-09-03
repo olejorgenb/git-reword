@@ -19,7 +19,7 @@ commit 7dcfdad1afb39b697a8632f0c450c555abe7d5b6
     ai-agent: Claude 4 Opus
     autonomy: med
 
-# 2 files changed, 40 insertions(+), 12 deletions(-)
+#   2 files changed, 40 insertions(+), 12 deletions(-)
 #   M  src/test_env_cli/cli.py
 #   A  tests/test_cli.py
 
@@ -112,13 +112,15 @@ Flags:
   them and nothing in them is editable. Off by default; there is no config
   key, the flag is enough. The block is:
   - one summary line in git's `--shortstat` wording, e.g.
-    `# 2 files changed, 40 insertions(+), 12 deletions(-)`, or
-    `# no files changed` for an empty commit;
-  - one line per file, `#` and three spaces, then the `--name-status`
-    letter without a similarity score (`M`, `A`, `D`, `T`, `R`, `C`), two
-    spaces, and the path. Renames and copies are written `old -> new`. The
-    indent sits inside the comment so the list reads as nested under the
-    summary while staying a comment for the parser and the highlighter.
+    `#   2 files changed, 40 insertions(+), 12 deletions(-)`, or
+    `#   no files changed` for an empty commit;
+  - one line per file: the `--name-status` letter without a similarity
+    score (`M`, `A`, `D`, `T`, `R`, `C`), two spaces, and the path. Renames
+    and copies are written `old -> new`.
+
+  Every line is `#` and three spaces, then the text. The indent sits
+  inside the comment so the block lines up with the message while staying
+  a comment for the parser and the highlighter.
 
   Merge commits get no block: their diff depends on which parent you ask
   about, and merges are not a goal. The summary line first lets an editor

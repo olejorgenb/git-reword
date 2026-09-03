@@ -235,11 +235,11 @@ def test_write_stats():
     )
     assert (
         f"commit {SHA_A}\n# https://gl/g/r/-/commit/{SHA_A}\n\n    First\n\n"
-        "# 2 files changed, 3 insertions(+), 1 deletion(-)\n#   M  a\n#   R  b -> c\n\n"
+        "#   2 files changed, 3 insertions(+), 1 deletion(-)\n#   M  a\n#   R  b -> c\n\n"
         f"commit {SHA_B}\n# https://gl/g/r/-/commit/{SHA_B}\n\n    Second\n\n"
     ) in content
     assert write([Commit(SHA_A, "First")], stats={SHA_A: Stat("", [])}).endswith(
-        f"commit {SHA_A}\n\n    First\n\n# no files changed\n"
+        f"commit {SHA_A}\n\n    First\n\n#   no files changed\n"
     )
 
     result = parse(content)
