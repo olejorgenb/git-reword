@@ -24,6 +24,29 @@ If the server is not on the PATH Zed sees, point at it in settings:
 }
 ```
 
+## Recommended settings
+
+Language `config.toml` cannot set these, so add them to `settings.json`:
+
+```json
+"languages": {
+  "Reword": {
+    "preferred_line_length": 76,
+    "wrap_guides": [76],
+    "allow_rewrap": "anywhere"
+  }
+}
+```
+
+Message lines are indented by 4, and both rewrap and the wrap guide count
+the indent, so 76 gives the usual 72 columns of text. `allow_rewrap` is
+needed because Zed's default (`in_comments`) makes `editor: rewrap` a no-op
+outside `#` comments. Rewrap stops at blank lines and indent changes, so it
+never joins the subject with the body.
+
+If the settings do not take effect, check the language name in the status
+bar: it must say `Reword`, not `Plain Text`.
+
 ## Updating the grammar
 
 `extension.toml` pins the grammar to a commit of this repository via a
