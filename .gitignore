@@ -11,3 +11,4 @@ tree-sitter-reword/build/
 zed-reword/target/
 zed-reword/Cargo.lock
 zed-reword/grammars/
+zed-reword/target
