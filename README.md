@@ -27,15 +27,14 @@ commit 7dcfdad1afb39b697a8632f0c450c555abe7d5b6
 `#` lines at column 0 are comments. Inside a message, `#` is just content.
 The full format is specified in `prose/spec/reword-format.md`.
 
-Flags: `--commit-link` adds a forge URL comment per commit, `--info` adds
-`Author:` and `Date:` lines, `--stat` adds the files each commit touched
-as comment lines after the message, as `git log --stat` does (a summary,
-then one `M`/`A`/`D`/`R` line per file; merge commits get none),
-`--no-abbrev` writes full shas instead of
-git's abbreviations (`--abbrev`, the default), `--continue` reopens the
-file from an aborted run, `--force` discards it. Abbreviated shas are
-resolved against the commits of the range when the file is read back;
-an ambiguous or unknown prefix is an error.
+Flags: 
+- `--commit-link` adds a forge URL comment per commit
+- `--info` adds `Author:` and `Date:` lines
+- `--stat` adds the files each commit touched as comment lines after the message, as `git log --stat` does
+- `--no-abbrev` writes full shas instead of git's abbreviations (`--abbrev`, the default)
+- `--continue` reopens the file from an aborted run, `--force` discards it. 
+ 
+Abbreviated shas are resolved against the commits of the range when the file is read back; an ambiguous or unknown prefix is an error.
 
 Merge commits in the rebased span are kept: git-reword rebases with
 `--rebase-merges` whenever the range contains one, unless
@@ -77,3 +76,7 @@ uv run pytest
 uv run ruff check
 uv run ty check
 ```
+
+## Disclaimer
+
+This is a vibe-coded project in the sense that I have read little of the code.
