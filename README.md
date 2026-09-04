@@ -25,6 +25,12 @@ commit 7dcfdad1afb39b697a8632f0c450c555abe7d5b6
     perform multiple operations in a single invocation.
 ```
 
+---
+
+![](media/screenshot.png)
+
+---
+
 `#` lines at column 0 are comments. Inside a message, `#` is just content.
 The full format is specified in `prose/spec/reword-format.md`.
 
