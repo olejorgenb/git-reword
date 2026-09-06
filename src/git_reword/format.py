@@ -24,6 +24,20 @@ HEADER = """\
 
 """
 
+# The `edit-info` option: every info line is applied to its commit as
+# written; the directive line tells the reader (and the language server,
+# which never sees the command line) that this file is in that mode.
+EDIT_INFO_OPTION = "edit-info"
+KNOWN_OPTIONS = frozenset({EDIT_INFO_OPTION})
+EDIT_INFO_HEADER = f"""\
+# git-reword: edit the indented messages and the `Key: value` info lines.
+# Column-0 lines are structure. Do not edit, reorder, add or remove
+# `commit` lines. Info lines are applied as written; a commit gets git's
+# default for a line that is missing.
+# git-reword-options: {EDIT_INFO_OPTION}
+
+"""
+
 # Info line keys, named as in `git log --pretty=fuller`. The author pair is
 # editable and applied; the committer pair is display only, since a
 # rewritten commit always gets the current user and time as committer.
@@ -36,6 +50,8 @@ _COMMIT_RE = re.compile(r"^commit[ \t]+(?P<sha>\S+)[ \t]*$")
 # Full sha or an abbreviation; git accepts 4 hex digits as the shortest.
 _SHA_RE = re.compile(r"^[0-9a-f]{4,64}$")
 _INFO_RE = re.compile(r"^(?P<key>[A-Za-z][A-Za-z-]*):(?P<value>.*)$")
+# A comment to the grammar, a directive to the tool.
+_OPTIONS_RE = re.compile(r"^#[ \t]*git-reword-options:(?P<options>.*)$")
 # Message content that looks like a trailer; same shape as the grammar's trailer_key.
 _TRAILER_RE = re.compile(r"^[A-Za-z][A-Za-z0-9-]*:[ \t]")
 
@@ -70,10 +86,15 @@ class Block:
 class ParseResult:
     blocks: list[Block]
     diagnostics: list[Diagnostic]
+    options: set[str] = field(default_factory=set)  # from `# git-reword-options:` lines
 
     @property
     def errors(self) -> list[Diagnostic]:
         return [d for d in self.diagnostics if d.severity is Severity.ERROR]
+
+    @property
+    def edit_info(self) -> bool:
+        return EDIT_INFO_OPTION in self.options
 
     @property
     def messages(self) -> dict[str, str]:
@@ -128,6 +149,7 @@ def reflow(lines: list[str], width: int = WIDTH) -> list[str]:
 def parse(text: str) -> ParseResult:
     blocks: list[Block] = []
     diagnostics: list[Diagnostic] = []
+    options: set[str] = set()
     seen: dict[str, int] = {}
 
     block: Block | None = None
@@ -160,6 +182,16 @@ def parse(text: str) -> ParseResult:
         lines.pop()  # trailing newline
 
     for lineno, line in enumerate(lines):
+        if m := _OPTIONS_RE.match(line):
+            if block is not None or blocks:
+                error(lineno, "Options line after the first `commit` line", "misplaced-options")
+                continue
+            for option in m.group("options").split():
+                if option in KNOWN_OPTIONS:
+                    options.add(option)
+                else:
+                    error(lineno, f"Unknown option `{option}`", "unknown-option")
+            continue
         if line.startswith("#"):
             continue
 
@@ -227,7 +259,7 @@ def parse(text: str) -> ParseResult:
         error(lineno, f"Unexpected line at column 0; {hint}", code)
 
     close_block(len(lines))
-    return ParseResult(blocks, diagnostics)
+    return ParseResult(blocks, diagnostics, options)
 
 
 def _check_subject(subject: str, lineno: int, indent: int, diagnostics: list[Diagnostic]) -> None:
@@ -276,6 +308,7 @@ def write(
     commit_link: bool = False,
     author_info: bool = False,
     commit_info: bool = False,
+    edit_info: bool = False,
     abbrev: bool = True,
     stats: dict[str, Stat | None] | None = None,
 ) -> str:
@@ -284,11 +317,14 @@ def write(
     message, as in git log. With `abbrev` the commit line carries the short
     sha (when the commit has one); comments and URLs keep the full sha.
     `author_info` and `commit_info` add the author and committer info
-    lines. `stats` (from `git.get_stats`) adds a comment block after each
-    message, as `git log --stat` does: the summary line, then one line per
-    file. A commit absent from `stats` (a merge) gets none."""
+    lines; `edit_info` marks them editable (the header and the options
+    directive) and implies `author_info`. `stats` (from `git.get_stats`)
+    adds a comment block after each message, as `git log --stat` does: the
+    summary line, then one line per file. A commit absent from `stats` (a
+    merge) gets none."""
+    author_info = author_info or edit_info
     keys = (AUTHOR_KEYS if author_info else ()) + (COMMITTER_KEYS if commit_info else ())
-    out = [HEADER]
+    out = [EDIT_INFO_HEADER if edit_info else HEADER]
     for i, commit in enumerate(commits):
         if i:
             out.append("\n")

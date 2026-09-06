@@ -270,3 +270,26 @@ def test_write_stats():
     result = parse(content)
     assert result.errors == []
     assert result.messages == {SHA_A: "First", SHA_B: "Second", "c" * 40: "Third"}
+
+
+def test_edit_info_directive_round_trips():
+    text = write([INFO_COMMIT], edit_info=True)
+    assert "# git-reword-options: edit-info\n" in text
+    assert "Author:     Ole <ole@x>\n" in text, "--edit-info implies the author lines"
+    assert "Commit:" not in text
+    result = parse(text)
+    assert result.errors == [] and result.options == {"edit-info"} and result.edit_info
+
+    plain = parse(write([INFO_COMMIT], author_info=True))
+    assert plain.options == set() and not plain.edit_info
+    assert "applied as written" not in write([INFO_COMMIT], author_info=True)
+
+
+def test_options_line_errors():
+    result = parse("# git-reword-options: edit-info bogus\ncommit " + SHA_A + "\n    S\n")
+    assert [(d.code, d.line) for d in result.errors] == [("unknown-option", 0)]
+    assert result.options == {"edit-info"}, "the known one still counts"
+
+    result = parse("commit " + SHA_A + "\n    S\n# git-reword-options: edit-info\n")
+    assert [(d.code, d.line) for d in result.errors] == [("misplaced-options", 2)]
+    assert not result.edit_info

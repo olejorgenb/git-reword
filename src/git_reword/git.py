@@ -197,22 +197,32 @@ def iso_date(raw: str) -> str:
     return datetime.fromtimestamp(int(timestamp), timezone(delta)).strftime("%Y-%m-%d %H:%M:%S %z")
 
 
-def author_ident(author: str, date: str | None, cwd: Path | str | None = None) -> tuple[str, str]:
-    """Validate and normalise an author through `git var GIT_AUTHOR_IDENT`:
-    returns (`Name <email>`, iso date) as git would store them. `date` is
-    anything git's `GIT_AUTHOR_DATE` accepts; None means now. Raises
-    GitError with git's own message on a malformed date or an empty name
-    (`invalid date format: ...`, `empty ident name ...`)."""
-    name, email = split_ident(author)
-    env = {"GIT_AUTHOR_NAME": name, "GIT_AUTHOR_EMAIL": email}
+def _ident_env(role: str, ident: str, date: str | None) -> dict[str, str]:
+    """GIT_AUTHOR_* or GIT_COMMITTER_* for an ident and optional date."""
+    name, email = split_ident(ident)
+    prefix = f"GIT_{role.upper()}"
+    env = {f"{prefix}_NAME": name, f"{prefix}_EMAIL": email}
     if date is not None:
-        env["GIT_AUTHOR_DATE"] = date
+        env[f"{prefix}_DATE"] = date
+    return env
+
+
+def ident(
+    role: str, value: str, date: str | None, cwd: Path | str | None = None
+) -> tuple[str, str]:
+    """Validate and normalise an identity through `git var GIT_AUTHOR_IDENT`
+    or `GIT_COMMITTER_IDENT` (`role` is "author" or "committer"): returns
+    (`Name <email>`, iso date) as git would store them. `date` is anything
+    the `GIT_*_DATE` variables accept; None means now. Raises GitError
+    with git's own message on a malformed date or an empty name (`invalid
+    date format: ...`, `empty ident name ...`)."""
+    env = _ident_env(role, value, date)
     try:
-        out = run("var", "GIT_AUTHOR_IDENT", cwd=cwd, env=env)
+        out = run("var", f"GIT_{role.upper()}_IDENT", cwd=cwd, env=env)
     except GitError as e:
         raise GitError(str(e).removeprefix("fatal: ")) from None
-    ident, _, raw = out.rpartition("> ")
-    return ident + ">", iso_date(raw)
+    name_email, _, raw = out.rpartition("> ")
+    return name_email + ">", iso_date(raw)
 
 
 def commit_tree(
@@ -222,14 +232,18 @@ def commit_tree(
     *,
     author: str,
     author_date: str,
+    committer: str | None = None,
+    committer_date: str | None = None,
     cwd: Path | str | None = None,
 ) -> str:
     """Write a commit object and return its sha. Author is taken from the
-    arguments, committer from the usual git config; nothing else is
-    touched. The message is stored as given plus a final newline:
-    `commit-tree` does no cleanup of its own."""
-    name, email = split_ident(author)
-    env = {"GIT_AUTHOR_NAME": name, "GIT_AUTHOR_EMAIL": email, "GIT_AUTHOR_DATE": author_date}
+    arguments; so is the committer when given, otherwise git's default
+    applies (the configured user, now). Nothing else is touched. The
+    message is stored as given plus a final newline: `commit-tree` does
+    no cleanup of its own."""
+    env = _ident_env("author", author, author_date)
+    if committer is not None:
+        env.update(_ident_env("committer", committer, committer_date))
     args = [arg for parent in parents for arg in ("-p", parent)]
     return run("commit-tree", tree, *args, cwd=cwd, env=env, input=message + "\n")
 

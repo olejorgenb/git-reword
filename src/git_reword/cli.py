@@ -62,7 +62,7 @@ def resolve(
             print(f"{path}:{b.line + 1}: error: duplicate commit {b.sha[:8]}")
             ok = False
         else:
-            edit, diagnostics = apply_mod.block_edit(b, matches[0])
+            edit, diagnostics = apply_mod.block_edit(b, matches[0], edit_info=result.edit_info)
             for d in diagnostics:
                 print(f"{path}:{d.line + 1}: {d.severity.value}: {d.message}")
                 ok = ok and d.severity is not format_mod.Severity.ERROR
@@ -164,6 +164,7 @@ def reword(
     commit_link: bool,
     author_info: bool,
     commit_info: bool,
+    edit_info: bool,
     stat: bool,
     abbrev: bool,
     continue_: bool,
@@ -203,6 +204,7 @@ def reword(
             commit_link=commit_link,
             author_info=author_info,
             commit_info=commit_info,
+            edit_info=edit_info,
             abbrev=abbrev,
             stats=git.get_stats(commit_range) if stat else None,
         )
@@ -231,10 +233,8 @@ def reword(
         print(f"\nDetected {len(changes)} changed commit(s):")
         for commit, edit in changes:
             print(f"\ncommit {commit.sha[:8]}")
-            if edit.author is not None:
-                print(f"  Author:     {commit.author} -> {edit.author}")
-            if edit.author_date is not None:
-                print(f"  AuthorDate: {commit.author_date} -> {edit.author_date}")
+            for key, (old, new) in edit.info_changes(commit).items():
+                print(f"  {key + ':':<12}{old} -> {new}")
             if edit.message != commit.message:
                 print(message_diff(commit.message, edit.message, color=sys.stdout.isatty()))
 
@@ -247,7 +247,7 @@ def reword(
         print(f"To revert:       git reset --soft {plan.head}")
 
         try:
-            success = apply_mod.apply(plan, changes)
+            success = apply_mod.apply(plan, changes, edits)
         except GitError as e:
             print(f"Error: {e}")
             success = False
@@ -290,15 +290,22 @@ def reword_command(
     ] = False,
     author_info: Annotated[
         bool,
-        typer.Option(
-            "--author-info", help="Add Author and AuthorDate info lines per commit (editable)"
-        ),
+        typer.Option("--author-info", help="Add Author and AuthorDate info lines per commit"),
     ] = False,
     commit_info: Annotated[
         bool,
         typer.Option(
-            "--commit-info",
-            help="Add Commit and CommitDate info lines per commit (the committer, display only)",
+            "--commit-info", help="Add Commit and CommitDate info lines per commit (the committer)"
+        ),
+    ] = False,
+    edit_info: Annotated[
+        bool,
+        typer.Option(
+            "--edit-info",
+            help=(
+                "Apply the info lines as written, edited or not; implies --author-info. "
+                "Without it they are context and edits to them are ignored"
+            ),
         ),
     ] = False,
     stat: Annotated[
@@ -333,6 +340,7 @@ def reword_command(
             commit_link=commit_link,
             author_info=author_info,
             commit_info=commit_info,
+            edit_info=edit_info,
             stat=stat,
             abbrev=abbrev,
             continue_=continue_,

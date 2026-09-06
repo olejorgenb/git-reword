@@ -21,34 +21,66 @@ from git_reword.git import Commit, GitError
 
 @dataclass(frozen=True)
 class Edit:
-    """What a block asks for a commit: the message, and the author and
-    author date when they were edited, normalised the way git stores them
-    (`Name <email>`, iso date). None means keep the original."""
+    """What a block asks for a commit: the message, and the info values the
+    block carries, normalised the way git stores them (`Name <email>`, iso
+    date). None means the line is absent (or the file is not in edit-info
+    mode) and the commit gets git's default for it: the original author
+    and author date, the current user and time as committer."""
 
     message: str
     author: str | None = None
     author_date: str | None = None
+    committer: str | None = None
+    committer_date: str | None = None
+
+    def info_changes(self, commit: Commit) -> dict[str, tuple[str, str]]:
+        """{key: (original, new)} for every info value that differs."""
+        originals = fmt.info_values(commit)
+        values = {
+            "Author": self.author,
+            "AuthorDate": self.author_date,
+            "Commit": self.committer,
+            "CommitDate": self.committer_date,
+        }
+        return {
+            key: (originals[key], new)
+            for key, new in values.items()
+            if new is not None and new != originals[key]
+        }
 
     def differs_from(self, commit: Commit) -> bool:
-        return (
-            self.message != commit.message
-            or self.author is not None
-            or self.author_date is not None
-        )
+        return self.message != commit.message or bool(self.info_changes(commit))
+
+
+def _normalise(key: str, value: str, commit: Commit, cwd: Path | str | None) -> str:
+    """An edited info value as git would store it. Raises GitError."""
+    role = "author" if key in fmt.AUTHOR_KEYS else "committer"
+    if key.endswith("Date"):
+        if not value:
+            raise GitError("empty date")
+        # The ident only has to be valid; the date is what is checked.
+        probe = (commit.author if role == "author" else commit.committer) or "x <x@localhost>"
+        return git.ident(role, probe, value, cwd=cwd)[1]
+    name, email = git.split_ident(value)
+    if not email.strip():
+        raise GitError("empty email")
+    if not name.strip():
+        raise GitError("empty name")
+    return git.ident(role, value, None, cwd=cwd)[0]
 
 
 def block_edit(
-    block: fmt.Block, commit: Commit, cwd: Path | str | None = None
+    block: fmt.Block, commit: Commit, *, edit_info: bool, cwd: Path | str | None = None
 ) -> tuple[Edit, list[Diagnostic]]:
     """The edit a block describes for its commit, plus diagnostics on its
-    info lines: an unknown key or a bad author value is an error, an edited
-    committer line a warning (the committer of a rewritten commit is always
-    the current user, now). Edited author values go through git for
-    validation and normalisation; unchanged lines never reach git."""
+    info lines. An unknown key is an error. Without `edit_info` the lines
+    are context: an edited one is a warning and the `Edit` carries only
+    the message. With it every present line is on the `Edit`; edited
+    values go through git for validation and normalisation, unchanged
+    ones never reach git."""
     diagnostics: list[Diagnostic] = []
     originals = fmt.info_values(commit)
-    author: str | None = None
-    author_date: str | None = None
+    values: dict[str, str | None] = dict.fromkeys(fmt.INFO_KEYS)
 
     for key, value in block.info.items():
         line = block.info_lines[key]
@@ -60,43 +92,34 @@ def block_edit(
                 )
             )
         elif value == originals[key]:
-            continue
-        elif key in fmt.COMMITTER_KEYS:
+            if edit_info:
+                values[key] = value
+        elif not edit_info:
             diagnostics.append(
                 Diagnostic(
                     line,
-                    f"{key} is display only; a rewritten commit gets the current "
-                    "committer and time",
-                    "committer-edited",
+                    f"{key} is context only here, the edit is ignored; "
+                    "rerun with --edit-info to apply it",
+                    "info-display-only",
                     Severity.WARNING,
                 )
             )
-        elif key == "Author":
+        else:
             try:
-                name, email = git.split_ident(value)
-                if not email.strip():
-                    raise GitError("empty email")
-                if not name.strip():
-                    raise GitError("empty name")
-                author, _ = git.author_ident(value, None, cwd=cwd)
+                values[key] = _normalise(key, value, commit, cwd)
             except GitError as e:
-                diagnostics.append(Diagnostic(line, f"Bad author: {e}", "bad-author"))
-            else:
-                if author == commit.author:
-                    author = None
-        else:  # AuthorDate
-            try:
-                if not value:
-                    raise GitError("empty date")
-                # The ident only has to be valid; the date is what is checked.
-                probe = commit.author or "git-reword <reword@localhost>"
-                _, author_date = git.author_ident(probe, value, cwd=cwd)
-            except GitError as e:
-                diagnostics.append(Diagnostic(line, f"Bad date: {e}", "bad-date"))
-            else:
-                if author_date == commit.author_date:
-                    author_date = None
-    return Edit(block.message, author, author_date), diagnostics
+                code = "bad-" + ("author" if key in fmt.AUTHOR_KEYS else "committer")
+                if key.endswith("Date"):
+                    code += "-date"
+                diagnostics.append(Diagnostic(line, f"Bad {key}: {e}", code))
+    edit = Edit(
+        block.message,
+        author=values["Author"],
+        author_date=values["AuthorDate"],
+        committer=values["Commit"],
+        committer_date=values["CommitDate"],
+    )
+    return edit, diagnostics
 
 
 @dataclass(frozen=True)
@@ -141,8 +164,13 @@ def changed_commits(commits: list[Commit], edits: dict[str, Edit]) -> list[tuple
     return changes
 
 
-def apply(plan: Plan, changes: list[tuple[Commit, Edit]]) -> bool:
+def apply(
+    plan: Plan, changes: list[tuple[Commit, Edit]], edits: dict[str, Edit] | None = None
+) -> bool:
     """Re-mint the changed commits and their descendants, then move HEAD.
+    `edits` are the blocks of every commit in the range (`changes` is the
+    subset that differs): an unchanged block still says what its commit
+    keeps when it is re-minted for a changed parent.
 
     All or nothing: the objects are written first and become reachable
     only with the final update-ref, which fails if HEAD moved meanwhile.
@@ -150,18 +178,21 @@ def apply(plan: Plan, changes: list[tuple[Commit, Edit]]) -> bool:
     if not changes:
         return True
 
-    edits = {c.sha: edit for c, edit in changes}
+    changed = {c.sha for c, _ in changes}
+    edits = {**(edits or {}), **{c.sha: edit for c, edit in changes}}
     mapped: dict[str, str] = {}
     for commit in plan.history:
-        edit = edits.get(commit.sha)
-        if edit is None and not any(p in mapped for p in commit.parents):
+        if commit.sha not in changed and not any(p in mapped for p in commit.parents):
             continue
+        edit = edits.get(commit.sha) or Edit(commit.message)
         mapped[commit.sha] = git.commit_tree(
             commit.tree,
             [mapped.get(p, p) for p in commit.parents],
-            edit.message if edit else commit.message,
-            author=edit.author if edit and edit.author else commit.author,
-            author_date=edit.author_date if edit and edit.author_date else commit.author_date,
+            edit.message,
+            author=edit.author or commit.author,
+            author_date=edit.author_date or commit.author_date,
+            committer=edit.committer,
+            committer_date=edit.committer_date,
         )
 
     new_head = mapped.get(plan.head)

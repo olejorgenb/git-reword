@@ -36,19 +36,24 @@ def test_get_commits_matches_get_commit(repo: Path) -> None:
     assert all(c.committer == c.author and c.committer_date and c.short for c in commits)
 
 
-def test_author_ident_validates_and_normalises(repo: Path) -> None:
-    ident, date = git.author_ident(" Some One  <some@one.example>", "@1771995569 +0100", cwd=repo)
+def test_ident_validates_and_normalises(repo: Path) -> None:
+    ident, date = git.ident(
+        "author", " Some One  <some@one.example>", "@1771995569 +0100", cwd=repo
+    )
     assert ident == "Some One <some@one.example>"
     assert date == "2026-02-25 05:59:29 +0100"
-    _, same = git.author_ident("A <a@b>", "2026-02-25 05:59:29 +0100", cwd=repo)
+    _, same = git.ident("author", "A <a@b>", "2026-02-25 05:59:29 +0100", cwd=repo)
     assert same == date, "iso round-trips to the second, offset included"
+    assert git.ident("committer", "C <c@d>", "@1771995569 +0100", cwd=repo) == ("C <c@d>", date)
     assert git.iso_date("1577914445 -0530") == "2020-01-01 16:04:05 -0530"
     with pytest.raises(git.GitError, match="invalid date"):
-        git.author_ident("A <a@b>", "bogus", cwd=repo)
+        git.ident("author", "A <a@b>", "bogus", cwd=repo)
+    with pytest.raises(git.GitError, match="invalid date"):
+        git.ident("committer", "A <a@b>", "bogus", cwd=repo)
     with pytest.raises(git.GitError, match="empty ident name"):
-        git.author_ident(" <a@b>", None, cwd=repo)
+        git.ident("author", " <a@b>", None, cwd=repo)
     with pytest.raises(git.GitError, match="Name <email>"):
-        git.author_ident("no email", None, cwd=repo)
+        git.ident("author", "no email", None, cwd=repo)
 
 
 def test_get_commit_rejects_option_shaped_sha(repo: Path, tmp_path: Path) -> None:
@@ -122,8 +127,22 @@ def test_commit_tree_round_trips_message_and_author(repo: Path) -> None:
     assert minted.tree == head.tree and minted.parents == head.parents
     assert minted.author == "Some One <some@one.example>"
     assert git_cmd("log", "-1", "--format=%ad", "--date=raw", sha, cwd=repo) == "1771995569 +0100"
-    # Committer comes from config, not from the author arguments.
+    # Committer comes from config, not from the author arguments...
     assert git_cmd("log", "-1", "--format=%cn", sha, cwd=repo) == "Test"
+    # ...unless given.
+    sha = git.commit_tree(
+        head.tree,
+        head.parents,
+        message,
+        author="Some One <some@one.example>",
+        author_date="2026-02-25 05:59:29 +0100",
+        committer="C D <c@d>",
+        committer_date="2020-01-02 03:04:05 +0530",
+        cwd=repo,
+    )
+    assert git_cmd("log", "-1", "--format=%cn <%ce>|%cd", "--date=raw", sha, cwd=repo) == (
+        "C D <c@d>|1577914445 +0530"
+    )
     # Nothing points at it: the repository is unchanged.
     assert git_cmd("rev-parse", "HEAD", cwd=repo) == head.sha
 

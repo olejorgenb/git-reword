@@ -41,10 +41,15 @@ The full format is specified in `prose/spec/reword-format.md`.
 
 Flags:
 - `--commit-link` adds a forge URL comment per commit
-- `--author-info` adds `Author:` and `AuthorDate:` lines, which can be edited
-  too; a run of commits made with the wrong email is a search and replace
-- `--commit-info` adds `Commit:` and `CommitDate:` lines, the committer,
-  for display only
+- `--author-info` adds `Author:` and `AuthorDate:` lines
+- `--commit-info` adds `Commit:` and `CommitDate:` lines, the committer
+- `--edit-info` makes the info lines editable (implies `--author-info`): a
+  run of commits made with the wrong email is then a search and replace.
+  Every info line in the file is applied as written, so with
+  `--commit-info` rewritten commits keep their committer and committer
+  date instead of being stamped anew. The file records the mode in a
+  `# git-reword-options: edit-info` line, which is how the language server
+  and `--continue` know about it
 - `--stat` adds the files each commit touched as comment lines after the message
 - `--no-abbrev` writes full shas instead of git's abbreviations (`--abbrev`, the default)
 - `--continue` reopens the file from an aborted run

@@ -439,10 +439,11 @@ def _authors(repo: Path) -> list[str]:
 
 def test_author_search_and_replace(repo: Path):
     """The use case: every commit in the range was made with the wrong
-    identity; one replace fixes them all, messages and dates untouched."""
+    identity; one replace fixes them all, messages and dates untouched.
+    --edit-info alone writes the author lines."""
     before = _idents(repo)
     editor = _replace_editor("Test <test@example.com>", "Ole <ole@example.com>")
-    result = run_reword(repo, editor, "HEAD~3..HEAD", "--author-info")
+    result = run_reword(repo, editor, "HEAD~3..HEAD", "--edit-info")
     assert result.returncode == 0, result.stdout + result.stderr
     assert "Detected 3 changed commit(s)" in result.stdout
     assert "  Author:     Test <test@example.com> -> Ole <ole@example.com>" in result.stdout
@@ -455,10 +456,22 @@ def test_author_search_and_replace(repo: Path):
     assert git("log", "--format=%cn", "-1", cwd=repo) == "Test", "committer is still config"
 
 
+def test_without_edit_info_an_edited_line_warns_and_is_ignored(repo: Path):
+    before = git("rev-parse", "HEAD", cwd=repo)
+    editor = _replace_editor("Test <test@example.com>", "Ole <ole@example.com>")
+    result = run_reword(repo, editor, "HEAD~2..HEAD", "--author-info", "--commit-info")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.count("warning: Author is context only here") == 2
+    assert result.stdout.count("warning: Commit is context only here") == 2
+    assert "--edit-info" in result.stdout
+    assert "No changes detected" in result.stdout
+    assert git("rev-parse", "HEAD", cwd=repo) == before
+
+
 def test_author_date_round_trips(repo: Path):
     original = git("log", "-1", "--format=%ad", "--date=iso", cwd=repo)
     editor = _replace_editor(f"AuthorDate: {original}", "AuthorDate: 2020-01-02 03:04:05 +0530")
-    result = run_reword(repo, editor, "HEAD~1..HEAD", "--author-info")
+    result = run_reword(repo, editor, "HEAD~1..HEAD", "--edit-info")
     assert result.returncode == 0, result.stdout + result.stderr
     assert f"  AuthorDate: {original} -> 2020-01-02 03:04:05 +0530" in result.stdout
     assert git("log", "-1", "--format=%ad", "--date=raw", cwd=repo) == "1577914445 +0530"
@@ -466,7 +479,7 @@ def test_author_date_round_trips(repo: Path):
     assert messages(repo) == MESSAGES
 
 
-def test_bad_author_values_are_reported_with_lines(repo: Path):
+def test_bad_info_values_are_reported_with_lines(repo: Path):
     original = git("log", "-1", "--format=%ad", "--date=iso", cwd=repo)
     editor = f"""\
 import sys, pathlib
@@ -474,30 +487,66 @@ p = pathlib.Path(sys.argv[1])
 text = p.read_text()
 text = text.replace("Author:     Test <test@example.com>", "Author:     Test", 1)
 text = text.replace("AuthorDate: {original}", "AuthorDate: bogus")
+text = text.replace("CommitDate: ", "CommitDate: junk-", 1)
 p.write_text(text)
 """
     before = git("rev-parse", "HEAD", cwd=repo)
-    result = run_reword(repo, editor, "HEAD~2..HEAD", "--author-info")
+    result = run_reword(repo, editor, "HEAD~2..HEAD", "--edit-info", "--commit-info")
     assert result.returncode == 1
     edit_file = repo / "REWORD_EDITMSG"
     lines = edit_file.read_text().split("\n")
     author_line = lines.index("Author:     Test") + 1
     date_line = lines.index("AuthorDate: bogus") + 1
-    assert f"{edit_file}:{author_line}: error: Bad author: not a `Name <email>`" in result.stdout
-    assert f"{edit_file}:{date_line}: error: Bad date: invalid date format" in result.stdout
+    cdate_line = next(i for i, ln in enumerate(lines) if ln.startswith("CommitDate: junk-")) + 1
+    assert f"{edit_file}:{author_line}: error: Bad Author: not a `Name <email>`" in result.stdout
+    assert f"{edit_file}:{date_line}: error: Bad AuthorDate: invalid date format" in result.stdout
+    assert f"{edit_file}:{cdate_line}: error: Bad CommitDate: invalid date format" in result.stdout
     assert git("rev-parse", "HEAD", cwd=repo) == before
 
 
-def test_edited_committer_warns_and_proceeds(repo: Path):
-    """A replace on the author name also hits the Commit: line; that is a
-    warning, and the author change still goes through."""
-    editor = _replace_editor("Test <test@example.com>", "Ole <ole@example.com>")
-    result = run_reword(repo, editor, "HEAD~2..HEAD", "--author-info", "--commit-info")
+def test_committer_lines_are_applied_as_written(repo: Path):
+    """With --commit-info the committer of a rewritten range commit is what
+    its block says; a descendant without a block gets git's default."""
+    # Old committer dates, so "kept" and "stamped now" are distinguishable.
+    subprocess.run(
+        ["git", "rebase", "-q", "--force-rebase", "HEAD~3"],
+        cwd=repo,
+        check=True,
+        env={**os.environ, "GIT_COMMITTER_DATE": "2020-01-02 03:04:05 +0530"},
+    )
+    idents = git("log", "--format=%cn <%ce>|%cd", "--date=raw", cwd=repo).split("\n")
+    assert idents[0] == "Test <test@example.com>|1577914445 +0530"
+    editor = _replace_editor("    Second commit", "    Second commit, reworded")
+    result = run_reword(repo, editor, "HEAD~3..HEAD~1", "--edit-info", "--commit-info")
     assert result.returncode == 0, result.stdout + result.stderr
-    assert result.stdout.count("warning: Commit is display only") == 2
-    assert "CommitDate" not in result.stdout
+    assert "Commit:" not in result.stdout, "an unchanged committer line is not a change"
+    after = git("log", "--format=%cn <%ce>|%cd", "--date=raw", cwd=repo).split("\n")
+    assert after[1:] == idents[1:], "the reworded commit keeps its committer and date"
+    assert after[0].startswith("Test <test@example.com>|")
+    assert after[0] != idents[0], "the carried-along descendant is stamped anew"
+
+    # And the committer is editable.
+    editor = _replace_editor(
+        "Commit:     Test <test@example.com>", "Commit:     Ole <ole@example.com>"
+    )
+    result = run_reword(repo, editor, "HEAD~3..HEAD", "--edit-info", "--commit-info")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Detected 3 changed commit(s)" in result.stdout
+    assert "  Commit:     Test <test@example.com> -> Ole <ole@example.com>" in result.stdout
+    committers = git("log", "--reverse", "--format=%ce", cwd=repo).split("\n")
+    assert committers == ["test@example.com"] + ["ole@example.com"] * 3
+    assert _authors(repo) == ["Test <test@example.com>"] * 4
+
+
+def test_author_replace_also_hits_committer_lines(repo: Path):
+    """The search and replace that motivated all this, with the committer
+    shown: it changes both, no warning."""
+    editor = _replace_editor("Test <test@example.com>", "Ole <ole@example.com>")
+    result = run_reword(repo, editor, "HEAD~2..HEAD", "--edit-info", "--commit-info")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "warning" not in result.stdout
     assert _authors(repo)[-2:] == ["Ole <ole@example.com>"] * 2
-    assert git("log", "--format=%cn", "-1", cwd=repo) == "Test"
+    assert git("log", "--format=%ce", "-1", cwd=repo) == "ole@example.com"
 
 
 def test_unknown_info_key_is_error(repo: Path):
@@ -509,7 +558,7 @@ def test_unknown_info_key_is_error(repo: Path):
 
 
 def test_unchanged_and_reformatted_info_lines_are_not_changes(repo: Path):
-    result = run_reword(repo, "pass", "HEAD~3..HEAD", "--author-info", "--commit-info")
+    result = run_reword(repo, "pass", "HEAD~3..HEAD", "--edit-info", "--commit-info")
     assert result.returncode == 0, result.stdout + result.stderr
     assert "No changes detected" in result.stdout
 
@@ -524,6 +573,25 @@ text = text.replace("Author:     Test <test@example.com>", "Author:  Test   <tes
 text = text.replace("AuthorDate: {original}", "AuthorDate: @{raw}")
 p.write_text(text)
 """
-    result = run_reword(repo, editor, "HEAD~1..HEAD", "--author-info")
+    result = run_reword(repo, editor, "HEAD~1..HEAD", "--edit-info")
     assert result.returncode == 0, result.stdout + result.stderr
     assert "No changes detected" in result.stdout
+
+
+def test_continue_keeps_the_mode_from_the_file(repo: Path):
+    """The directive travels in the file, so --continue needs no flags."""
+    break_it = _replace_editor("    Third commit", "  Third commit")
+    result = run_reword(repo, break_it, "HEAD~3..HEAD", "--edit-info")
+    assert result.returncode == 1
+    assert "# git-reword-options: edit-info" in (repo / "REWORD_EDITMSG").read_text()
+
+    fix_it = """\
+import sys, pathlib
+p = pathlib.Path(sys.argv[1])
+text = p.read_text().replace("  Third commit", "    Third commit")
+text = text.replace("Author:     Test <test@example.com>", "Author:     Ole <ole@example.com>", 1)
+p.write_text(text)
+"""
+    result = run_reword(repo, fix_it, "HEAD~3..HEAD", "--continue")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _authors(repo)[1] == "Ole <ole@example.com>"

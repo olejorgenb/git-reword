@@ -122,7 +122,9 @@ class Analysis:
             if original is None:
                 return None
             cwd = self.repo.git_dir if self.repo else None
-            self._edits[block.line] = block_edit(block, original, cwd=cwd)
+            self._edits[block.line] = block_edit(
+                block, original, edit_info=self.result.edit_info, cwd=cwd
+            )
         return self._edits[block.line]
 
     def changed(self, block: fmt.Block) -> bool:
@@ -130,7 +132,7 @@ class Analysis:
         return bool(block.message) and bool(self.changed_parts(block))
 
     def changed_parts(self, block: fmt.Block) -> list[str]:
-        """Which of "message" and "author" the block changes."""
+        """Which of "message", "author" and "committer" the block changes."""
         original = self.original(block)
         edit = self.edit(block)
         if original is None or edit is None:
@@ -138,8 +140,11 @@ class Analysis:
         parts = []
         if block.message and block.message != original.message:
             parts.append("message")
-        if edit[0].author is not None or edit[0].author_date is not None:
+        changed_keys = edit[0].info_changes(original)
+        if any(key in fmt.AUTHOR_KEYS for key in changed_keys):
             parts.append("author")
+        if any(key in fmt.COMMITTER_KEYS for key in changed_keys):
+            parts.append("committer")
         return parts
 
     def sha_range(self, block: fmt.Block) -> lsp.Range:
@@ -426,7 +431,7 @@ class Analysis:
             edits: list[lsp.TextEdit] = []
             originals = fmt.info_values(original)
             for key, line in block.info_lines.items():
-                if key in fmt.AUTHOR_KEYS and block.info[key] != originals[key]:
+                if key in fmt.INFO_KEYS and block.info[key] != originals[key]:
                     edits.append(
                         lsp.TextEdit(
                             lsp.Range(lsp.Position(line, 0), lsp.Position(line + 1, 0)),
