@@ -1,4 +1,4 @@
-# Plan: gate info editing behind `--edit-commit-info`
+# Plan: gate info editing behind `--edit-info`
 
 Follow-up to `2026-09-06/edit-author-date.md` (landed as 87d5cc8). That
 made `Author`/`AuthorDate` editable and `Commit`/`CommitDate` display
@@ -14,17 +14,17 @@ written.
 ## Decisions
 
 - **`--author-info` and `--commit-info` stay display flags.** They write
-  the same lines as today. Without `--edit-commit-info` an edited info
+  the same lines as today. Without `--edit-info` an edited info
   line is a warning ("info lines are display only; rerun with
-  `--edit-commit-info` to apply edits"), for all four keys, and the run
+  `--edit-info` to apply edits"), for all four keys, and the run
   proceeds with the original metadata. Unknown keys stay errors.
-- **`--edit-commit-info` makes info lines authoritative.** With it, every
+- **`--edit-info` makes info lines authoritative.** With it, every
   info line present in a block is applied to that commit when it is
   re-minted, edited or not: `Author`/`AuthorDate` through `GIT_AUTHOR_*`,
   `Commit`/`CommitDate` through `GIT_COMMITTER_*`. A key absent from a
   block, and every commit re-minted without a block (descendants after
   the range), gets git's default: original author, current user and time
-  as committer. So `--edit-commit-info --author-info` edits authors and
+  as committer. So `--edit-info --author-info` edits authors and
   gives rewritten commits new committer dates, as today; adding
   `--commit-info` keeps or edits the committer too. The flag implies
   `--author-info`, since alone it has nothing to edit.
@@ -33,7 +33,7 @@ written.
   on the command line. The writer emits a directive line in the header:
 
   ```
-  # git-reword-options: edit-commit-info
+  # git-reword-options: edit-info
   ```
 
   `parse` reads `# git-reword-options:` lines anywhere before the first
@@ -52,9 +52,9 @@ written.
 
 ## Steps
 
-1. **Spec.** Writing: `--edit-commit-info` and the directive line under
+1. **Spec.** Writing: `--edit-info` and the directive line under
    Flags; `--commit-info` loses "display only". Line classification: info
-   lines are context unless the file carries `edit-commit-info`, then
+   lines are context unless the file carries `edit-info`, then
    every present line is applied; editing one without it is a warning.
    Reading back: the directive, the two `git var` checks, the definition
    of "changed", and what an absent line means on a re-minted commit.
@@ -64,7 +64,7 @@ written.
    `git var` name; `commit_tree` gains `committer` and `committer_date`
    (None means unset, so git's default).
 3. **format.py.** `OPTIONS_RE` for the directive, `ParseResult.options`,
-   `KNOWN_OPTIONS = {"edit-commit-info"}`, `write(..., edit_info: bool)`
+   `KNOWN_OPTIONS = {"edit-info"}`, `write(..., edit_info: bool)`
    emitting the directive and the adapted header. `INFO_KEYS` stays;
    `AUTHOR_KEYS`/`COMMITTER_KEYS` split is still used by the writer.
 4. **apply.py.** `Edit` gains `committer` and `committer_date`.
@@ -94,7 +94,6 @@ written.
 
 ## Open
 
-- The name. `--edit-commit-info` next to `--commit-info` (the committer
-  lines) can read as "edit the committer lines". `--edit-info` would be
-  the same word as the lines themselves. Going with `--edit-commit-info`
-  as proposed unless told otherwise.
+- Nothing. The name was `--edit-commit-info` first; `--edit-info` was
+  chosen (2026-09-07) because next to `--commit-info`, the committer
+  lines, the longer name read as "edit the committer lines".
