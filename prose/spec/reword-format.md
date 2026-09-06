@@ -67,12 +67,19 @@ Details:
 - Info lines may only appear between the `commit` line and the first
   message line. The keys are those of `git log --pretty=fuller`: `Author`,
   `AuthorDate`, `Commit`, `CommitDate`. They are emitted behind flags
-  (see Writing) and read back by key. `Author` and `AuthorDate` are
-  editable and applied to the commit. `Commit` and `CommitDate` are
-  display only: every re-minted commit gets the current user and time,
-  as with any rewrite in git. Editing one of them is a warning, not an
-  error, so a search and replace on the author name that also hits the
-  `Commit:` line does not block the run. An unknown key is an error.
+  (see Writing) and read back by key. An unknown key is an error.
+  Whether the lines are context or editable is decided by the file's
+  options (next item): without `edit-info` they are context, and editing
+  one is a warning, not an error, so a stray edit does not block a
+  reword. With `edit-info` every info line present in a block is
+  applied as written to that commit when it is rewritten.
+- Options lines, `# git-reword-options: <option> ...`, are comments to
+  the grammar and to a reader, and a directive to the tool. They may
+  appear anywhere before the first `commit` line. The tool writes one
+  when a flag changes how the file is read back, so the language server,
+  which is started by the editor, and `--continue`, which reopens an old
+  file, see the same file the same way. The only option is `edit-info`.
+  An unknown option is an error.
 - The indent is exactly 4 spaces or exactly 1 tab. Any remaining leading
   whitespace is content. 1-3 leading spaces is an error.
 - Blank lines are whitespace-only lines, so editors that strip trailing
@@ -133,14 +140,20 @@ Flags:
   Merge commits get no block: their diff depends on which parent you ask
   about, and merges are not a goal. The summary line first lets an editor
   fold the block down to it (see the language server spec).
-- `--author-info`: emit `Author:` and `AuthorDate:` info lines, the
-  editable pair.
+- `--author-info`: emit `Author:` and `AuthorDate:` info lines.
 - `--commit-info`: emit `Commit:` and `CommitDate:` info lines, the
-  committer pair, display only. Useful next to `--author-info` to see the
-  two identities side by side before a rewrite resets the committer.
+  committer pair. Useful next to `--author-info` to see the two
+  identities side by side.
 
   Values are aligned like `git log --pretty=fuller`: the key, a colon, and
   spaces up to column 12.
+- `--edit-info`: make the info lines editable. Writes the
+  `# git-reword-options: edit-info` line and a header that says the info
+  lines are applied as written. Implies `--author-info`, since alone it
+  would have nothing to edit; `--commit-info` is still opt-in, so
+  `--edit-info` by itself edits authors and lets git stamp rewritten
+  commits with the current committer and time, as any rewrite does,
+  while `--edit-info --commit-info` keeps or edits the committer too.
 - `--abbrev` / `--no-abbrev`: abbreviated (default) or full shas on the
   `commit` lines. Abbreviation is git's `%h`, unique within the repository
   at the time of writing. Comments and URLs always carry the full sha.
@@ -154,17 +167,27 @@ resolving to the same commit are a duplicate. All three are errors, so the
 resolution never touches git. After resolution the set of commits must
 equal the original set, in the original order. A commit is "changed" when
 its cleaned message differs from the original message after the same
-cleanup, or when its `Author` or `AuthorDate` value differs from the
-original after normalisation.
+cleanup, or, with `edit-info`, when an info value differs from the
+original after normalisation. Without `edit-info` the info lines never
+make a commit changed; an edited one is reported as a warning and the
+original metadata is kept.
 
-Info values are validated by git, not by the tool: an `Author` or
-`AuthorDate` line whose text differs from what was written is passed
-through `git var GIT_AUTHOR_IDENT` (with `GIT_AUTHOR_NAME`,
-`GIT_AUTHOR_EMAIL` and `GIT_AUTHOR_DATE` set), which rejects a malformed
-date or an empty name and otherwise returns the canonical ident and
-timestamp. The name and email are split on the last ` <`; a value without
-`<...>` is an error before git is asked. A date written with a different
-offset is a change, since git stores the offset.
+With `edit-info`, info values are validated by git, not by the tool: a
+line whose text differs from what was written is passed through `git var
+GIT_AUTHOR_IDENT` or `GIT_COMMITTER_IDENT` with the matching
+`GIT_*_NAME`, `GIT_*_EMAIL` and `GIT_*_DATE` set, which rejects a
+malformed date or an empty name and otherwise returns the canonical
+ident and timestamp. The name and email are split on the last ` <`; a
+value without `<...>` is an error before git is asked. A date written
+with a different offset is a change, since git stores the offset.
+
+What a rewritten commit gets, with `edit-info`: every info line present
+in its block, edited or not. A key absent from the block, and every
+commit rewritten without a block (a descendant after the range), gets
+git's default for it: the original author and author date, the current
+user and time as committer. So an unchanged `Commit:` line is not a
+change by itself, but it is what the commit keeps if it is rewritten for
+another reason, where a file without the line would let git stamp it.
 
 The language server resolves shas through git instead (`git log -n 1`),
 since it has no range to match against; an ambiguous abbreviation is then
@@ -174,8 +197,8 @@ When applying, the tool writes commit objects directly with `commit-tree`,
 which does no cleanup of its own, so the cleanup above is the only one and
 `#` lines in messages survive. Every changed commit and every commit
 descending from one, up to `HEAD`, is re-minted with its original tree
-and its author and author date as read back from the file, the original
-ones when not edited; `HEAD` is then moved once with `update-ref`,
+and the metadata described above; `HEAD` is then moved once with
+`update-ref`,
 which fails if `HEAD` moved meanwhile. Unchanged commits before the first
 change keep their sha. The index and working tree are never touched. See
 `prose/plan/2026-09-06/commit-tree-apply.md`.
