@@ -21,6 +21,8 @@ are the message:
 
 ```
 commit 7dcfdad1afb39b697a8632f0c450c555abe7d5b6
+Author:     Ole Jørgen Brønner <ole@example.com>
+AuthorDate: 2026-02-25 05:59:29 +0100
 
     test-env-cli: refactor the CLI interface
 
@@ -39,7 +41,10 @@ The full format is specified in `prose/spec/reword-format.md`.
 
 Flags:
 - `--commit-link` adds a forge URL comment per commit
-- `--info` adds `Author:` and `Date:` lines
+- `--author-info` adds `Author:` and `AuthorDate:` lines, which can be edited
+  too; a run of commits made with the wrong email is a search and replace
+- `--commit-info` adds `Commit:` and `CommitDate:` lines, the committer,
+  for display only
 - `--stat` adds the files each commit touched as comment lines after the message
 - `--no-abbrev` writes full shas instead of git's abbreviations (`--abbrev`, the default)
 - `--continue` reopens the file from an aborted run
@@ -62,7 +67,7 @@ anywhere inside a worktree. It provides:
 - diagnostics: format errors with quick-fixes, subject length, unknown shas,
   and a hint on every commit whose message changed
 - document symbols (outline): one per commit, subject plus short sha
-- hover on a `commit` line: author, date, original message
+- hover on a `commit` line: author, committer, dates, original message
 - code actions: revert a commit to its original message, reflow the
   paragraph under the cursor to 72 columns, indent misindented lines, open
   the commit in the forge (from `origin`), and in Zed open it in Zed's

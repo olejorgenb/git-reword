@@ -517,3 +517,69 @@ def test_unknown_abbreviation(edit_file: Path):
     assert [d.code for d in a.diagnostics()] == ["unknown-sha"]
     # No commit to resolve through: the link falls back to the token as written.
     assert a.links()[0].target.endswith("/-/commit/0123456")
+
+
+@pytest.fixture
+def info_file(repo: Path) -> Path:
+    commits = git.get_commits("HEAD~3..HEAD", cwd=repo)
+    path = repo / "REWORD_EDITMSG"
+    path.write_text(fmt.write(commits, author_info=True, commit_info=True))
+    return path
+
+
+def test_info_line_diagnostics(info_file: Path):
+    text = info_file.read_text()
+    text = text.replace("Author:     Test <test@example.com>", "Author:     Test", 1)
+    text = text.replace("Author:     Test <test@example.com>", "Author:     Ole <ole@x>", 1)
+    text = text.replace("Commit:     Test <test@example.com>", "Commit:     Ole <ole@x>", 1)
+    # Git's date parser is lenient (approxidate), so the value has to be junk.
+    lines = text.split("\n")
+    date_line = next(i for i, line in enumerate(lines) if line.startswith("AuthorDate:"))
+    lines[date_line] = "AuthorDate: bogus"
+    text = "\n".join(lines).replace("CommitDate:", "CommitDat:", 1)
+    lines = text.split("\n")
+    a = analyse(info_file, text)
+    diags = a.diagnostics()
+    by_code = {d.code: d for d in diags}
+    assert sorted(d.code for d in diags) == sorted(
+        ["bad-author", "bad-date", "changed", "committer-edited", "unknown-info-key"]
+    )
+    assert lines[by_code["bad-author"].range.start.line] == "Author:     Test"
+    assert by_code["bad-date"].range.start.line == date_line
+    assert lines[by_code["unknown-info-key"].range.start.line].startswith("CommitDat:")
+    assert by_code["bad-author"].severity is lsp.DiagnosticSeverity.Error
+    assert by_code["bad-date"].severity is lsp.DiagnosticSeverity.Error
+    assert by_code["unknown-info-key"].severity is lsp.DiagnosticSeverity.Error
+    assert by_code["committer-edited"].severity is lsp.DiagnosticSeverity.Warning
+    assert by_code["changed"].message == "Author changed"
+    assert by_code["changed"].range.start.line == a.result.blocks[1].line
+
+
+def test_info_hover_and_revert(info_file: Path):
+    original = info_file.read_text()
+    a = analyse(info_file)
+    assert a.diagnostics() == []
+    block = a.result.blocks[0]
+    hover = a.hover(lsp.Position(block.line, 3))
+    assert hover is not None
+    assert "Author: Test <test@example.com> ·" in hover.contents.value
+    assert "Commit: Test <test@example.com> ·" in hover.contents.value
+
+    text = original.replace("Author:     Test <test@example.com>", "Author:     Ole <ole@x>", 1)
+    text = text.replace("    First commit", "    First commit, edited")
+    a = analyse(info_file, text)
+    block = a.result.blocks[0]
+    assert a.changed(block) and a.changed_parts(block) == ["message", "author"]
+    actions = a.code_actions(lsp.Range(lsp.Position(block.line, 0), lsp.Position(block.line, 0)))
+    assert actions[0].title == f"Revert {block.sha[:8]} to its original message and author"
+    assert apply_edits(text, actions[0].edit.changes[a.uri]) == original
+
+    # An author-only change: no message edit in the revert.
+    text = original.replace("Author:     Test <test@example.com>", "Author:     Ole <ole@x>", 1)
+    a = analyse(info_file, text)
+    block = a.result.blocks[0]
+    actions = a.code_actions(lsp.Range(lsp.Position(block.line, 0), lsp.Position(block.line, 0)))
+    assert actions[0].title == f"Revert {block.sha[:8]} to its original author"
+    assert len(actions[0].edit.changes[a.uri]) == 1
+    assert apply_edits(text, actions[0].edit.changes[a.uri]) == original
+    assert [s.detail for s in a.symbols()][0].endswith(" · changed")

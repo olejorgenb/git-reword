@@ -32,7 +32,23 @@ def test_get_commits_matches_get_commit(repo: Path) -> None:
 
     commits = git.get_commits("HEAD~2..HEAD", cwd=repo)
     assert [c.message for c in commits] == MESSAGES[-2:]
-    assert all(c.author == "Test <test@example.com>" and c.date and c.short for c in commits)
+    assert all(c.author == "Test <test@example.com>" and c.author_date for c in commits)
+    assert all(c.committer == c.author and c.committer_date and c.short for c in commits)
+
+
+def test_author_ident_validates_and_normalises(repo: Path) -> None:
+    ident, date = git.author_ident(" Some One  <some@one.example>", "@1771995569 +0100", cwd=repo)
+    assert ident == "Some One <some@one.example>"
+    assert date == "2026-02-25 05:59:29 +0100"
+    _, same = git.author_ident("A <a@b>", "2026-02-25 05:59:29 +0100", cwd=repo)
+    assert same == date, "iso round-trips to the second, offset included"
+    assert git.iso_date("1577914445 -0530") == "2020-01-01 16:04:05 -0530"
+    with pytest.raises(git.GitError, match="invalid date"):
+        git.author_ident("A <a@b>", "bogus", cwd=repo)
+    with pytest.raises(git.GitError, match="empty ident name"):
+        git.author_ident(" <a@b>", None, cwd=repo)
+    with pytest.raises(git.GitError, match="Name <email>"):
+        git.author_ident("no email", None, cwd=repo)
 
 
 def test_get_commit_rejects_option_shaped_sha(repo: Path, tmp_path: Path) -> None:

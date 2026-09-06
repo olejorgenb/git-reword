@@ -32,17 +32,19 @@ app = typer.Typer(
 
 def resolve(
     commits: list[Commit], result: format_mod.ParseResult, path: Path
-) -> dict[str, str] | None:
+) -> dict[str, apply_mod.Edit] | None:
     """Match each block to a commit of the range by sha prefix and return
-    {full sha: message}. Prints every problem as path:line: message and
-    returns None when there is any. Never asks git: the range is the only
-    valid universe for the file's shas."""
+    {full sha: Edit}. Prints every problem as path:line: message and
+    returns None when there is any error; warnings (an edited committer
+    line) are printed and do not stop the run. Sha resolution never asks
+    git: the range is the only valid universe for the file's shas. Edited
+    author values are validated through git."""
     ok = True
     for d in result.errors:
         print(f"{path}:{d.line + 1}: error: {d.message}")
         ok = False
 
-    messages: dict[str, str] = {}
+    edits: dict[str, apply_mod.Edit] = {}
     edited: list[str] = []
     # A sha the parser rejected is already reported; do not call it unknown too.
     bad = {d.line for d in result.diagnostics if d.code == "bad-sha"}
@@ -56,11 +58,15 @@ def resolve(
         elif len(matches) > 1:
             print(f"{path}:{b.line + 1}: error: ambiguous sha {b.sha}")
             ok = False
-        elif matches[0].sha in messages:
+        elif matches[0].sha in edits:
             print(f"{path}:{b.line + 1}: error: duplicate commit {b.sha[:8]}")
             ok = False
         else:
-            messages[matches[0].sha] = b.message
+            edit, diagnostics = apply_mod.block_edit(b, matches[0])
+            for d in diagnostics:
+                print(f"{path}:{d.line + 1}: {d.severity.value}: {d.message}")
+                ok = ok and d.severity is not format_mod.Severity.ERROR
+            edits[matches[0].sha] = edit
             edited.append(matches[0].sha)
 
     original = [c.sha for c in commits]
@@ -70,7 +76,7 @@ def resolve(
     if ok and edited != original:
         print(f"{path}: error: commits are not in the original order")
         ok = False
-    return messages if ok else None
+    return edits if ok else None
 
 
 def edit_file_path() -> Path:
@@ -156,7 +162,8 @@ def reword(
     *,
     editor: str | None,
     commit_link: bool,
-    info: bool,
+    author_info: bool,
+    commit_info: bool,
     stat: bool,
     abbrev: bool,
     continue_: bool,
@@ -194,7 +201,8 @@ def reword(
             commits,
             repo_url=git.repo_url(),
             commit_link=commit_link,
-            info=info,
+            author_info=author_info,
+            commit_info=commit_info,
             abbrev=abbrev,
             stats=git.get_stats(commit_range) if stat else None,
         )
@@ -210,20 +218,25 @@ def reword(
 
         result = format_mod.parse(edit_file.read_text())
 
-        messages = resolve(commits, result, edit_file)
-        if messages is None:
+        edits = resolve(commits, result, edit_file)
+        if edits is None:
             keep = True
             return False
 
-        changes = apply_mod.changed_commits(commits, messages)
+        changes = apply_mod.changed_commits(commits, edits)
         if not changes:
             print("No changes detected")
             return True
 
         print(f"\nDetected {len(changes)} changed commit(s):")
-        for commit, new_msg in changes:
+        for commit, edit in changes:
             print(f"\ncommit {commit.sha[:8]}")
-            print(message_diff(commit.message, new_msg, color=sys.stdout.isatty()))
+            if edit.author is not None:
+                print(f"  Author:     {commit.author} -> {edit.author}")
+            if edit.author_date is not None:
+                print(f"  AuthorDate: {commit.author_date} -> {edit.author_date}")
+            if edit.message != commit.message:
+                print(message_diff(commit.message, edit.message, color=sys.stdout.isatty()))
 
         if not confirm("\nApply these changes?", default=True):
             print("Cancelled")
@@ -275,8 +288,18 @@ def reword_command(
     commit_link: Annotated[
         bool, typer.Option("--commit-link", help="Add a forge commit URL comment per commit")
     ] = False,
-    info: Annotated[
-        bool, typer.Option("--info", help="Add Author and Date info lines per commit")
+    author_info: Annotated[
+        bool,
+        typer.Option(
+            "--author-info", help="Add Author and AuthorDate info lines per commit (editable)"
+        ),
+    ] = False,
+    commit_info: Annotated[
+        bool,
+        typer.Option(
+            "--commit-info",
+            help="Add Commit and CommitDate info lines per commit (the committer, display only)",
+        ),
     ] = False,
     stat: Annotated[
         bool, typer.Option("--stat", help="Add the files each commit touched, as comments")
@@ -308,7 +331,8 @@ def reword_command(
             commit_range,
             editor=editor,
             commit_link=commit_link,
-            info=info,
+            author_info=author_info,
+            commit_info=commit_info,
             stat=stat,
             abbrev=abbrev,
             continue_=continue_,

@@ -16,8 +16,8 @@ commit 7dcfdad1afb39b697a8632f0c450c555abe7d5b6
     autonomy: med
 
 commit a0747cfb245789a748922cd9f354a9ad2ce6d6d8
-Author: Ole Jørgen Brønner <ole@example.com>
-Date:   2026-02-25 05:59:29 +0100
+Author:     Ole Jørgen Brønner <ole@example.com>
+AuthorDate: 2026-02-25 05:59:29 +0100
 committer: someone
 	tab indented subject line
 

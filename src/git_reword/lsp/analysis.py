@@ -17,6 +17,7 @@ from lsprotocol import types as lsp
 
 from git_reword import format as fmt
 from git_reword import git
+from git_reword.apply import Edit, block_edit
 from git_reword.git import Commit, GitError
 
 SOURCE = "git-reword"
@@ -92,6 +93,7 @@ class Analysis:
     text: str
     repo: Repo | None
     client: str | None = None  # editor name from initialize, e.g. "Zed"
+    _edits: dict[int, tuple[Edit, list[fmt.Diagnostic]]] = field(default_factory=dict, repr=False)
 
     @cached_property
     def lines(self) -> list[str]:
@@ -112,9 +114,33 @@ class Analysis:
     def original(self, block: fmt.Block) -> Commit | None:
         return self.repo.commit(block.sha) if self.repo else None
 
+    def edit(self, block: fmt.Block) -> tuple[Edit, list[fmt.Diagnostic]] | None:
+        """The block's edit and its info-line diagnostics, None without an
+        original commit. Cached per block: edited author lines cost a git call."""
+        if block.line not in self._edits:
+            original = self.original(block)
+            if original is None:
+                return None
+            cwd = self.repo.git_dir if self.repo else None
+            self._edits[block.line] = block_edit(block, original, cwd=cwd)
+        return self._edits[block.line]
+
     def changed(self, block: fmt.Block) -> bool:
+        # An empty message is an error, not a change, as in changed_commits.
+        return bool(block.message) and bool(self.changed_parts(block))
+
+    def changed_parts(self, block: fmt.Block) -> list[str]:
+        """Which of "message" and "author" the block changes."""
         original = self.original(block)
-        return original is not None and bool(block.message) and block.message != original.message
+        edit = self.edit(block)
+        if original is None or edit is None:
+            return []
+        parts = []
+        if block.message and block.message != original.message:
+            parts.append("message")
+        if edit[0].author is not None or edit[0].author_date is not None:
+            parts.append("author")
+        return parts
 
     def sha_range(self, block: fmt.Block) -> lsp.Range:
         line = self.lines[block.line]
@@ -206,11 +232,23 @@ class Analysis:
                         source=SOURCE,
                     )
                 )
-            elif self.changed(block):
+                continue
+            edit = self.edit(block)
+            for d in edit[1] if edit else []:
+                out.append(
+                    lsp.Diagnostic(
+                        range=self.line_range(d.line),
+                        message=d.message,
+                        severity=_SEVERITY[d.severity],
+                        code=d.code,
+                        source=SOURCE,
+                    )
+                )
+            if self.changed(block):
                 out.append(
                     lsp.Diagnostic(
                         range=self.line_range(block.line),
-                        message="Message changed",
+                        message=f"{' and '.join(self.changed_parts(block)).capitalize()} changed",
                         severity=lsp.DiagnosticSeverity.Hint,
                         code="changed",
                         source=SOURCE,
@@ -245,9 +283,13 @@ class Analysis:
         original = self.original(block)
         if original is None:
             return None
-        parts = [f"`{original.sha[:8]}` {original.author} · {original.date}"]
-        if self.changed(block):
-            parts.append("**Message changed.** Original:")
+        parts = [
+            f"`{original.sha[:8]}`  \n"
+            f"Author: {original.author} · {original.author_date}  \n"
+            f"Commit: {original.committer} · {original.committer_date}"
+        ]
+        if changed := self.changed_parts(block):
+            parts.append(f"**{' and '.join(changed).capitalize()} changed.** Original message:")
         else:
             parts.append("Original message:")
         parts.append(f"```\n{original.message}\n```")
@@ -381,22 +423,30 @@ class Analysis:
         if self.changed(block):
             original = self.original(block)
             assert original is not None
-            start, end = self.message_lines(block)
-            new_text = _indent(original.message)
+            edits: list[lsp.TextEdit] = []
+            originals = fmt.info_values(original)
+            for key, line in block.info_lines.items():
+                if key in fmt.AUTHOR_KEYS and block.info[key] != originals[key]:
+                    edits.append(
+                        lsp.TextEdit(
+                            lsp.Range(lsp.Position(line, 0), lsp.Position(line + 1, 0)),
+                            fmt.info_line(key, originals[key]),
+                        )
+                    )
+            if block.message != original.message:
+                start, end = self.message_lines(block)
+                edits.append(
+                    lsp.TextEdit(
+                        lsp.Range(lsp.Position(start, 0), lsp.Position(end, 0)),
+                        _indent(original.message),
+                    )
+                )
+            what = " and ".join(self.changed_parts(block))
             actions.append(
                 lsp.CodeAction(
-                    title=f"Revert {block.sha[:8]} to its original message",
+                    title=f"Revert {block.sha[:8]} to its original {what}",
                     kind=lsp.CodeActionKind.RefactorRewrite,
-                    edit=lsp.WorkspaceEdit(
-                        changes={
-                            self.uri: [
-                                lsp.TextEdit(
-                                    lsp.Range(lsp.Position(start, 0), lsp.Position(end, 0)),
-                                    new_text,
-                                )
-                            ]
-                        }
-                    ),
+                    edit=lsp.WorkspaceEdit(changes={self.uri: edits}),
                 )
             )
 

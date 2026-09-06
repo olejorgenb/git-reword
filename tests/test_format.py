@@ -32,21 +32,46 @@ def test_round_trip_two_commits_in_order():
     assert result.messages == {SHA_A: "First", SHA_B: "Second\n\nBody"}
 
 
+INFO_COMMIT = Commit(
+    SHA_A,
+    "Subject",
+    author="Ole <ole@x>",
+    author_date="2026-02-25 05:59:29 +0100",
+    committer="Bot <bot@x>",
+    committer_date="2026-02-26 10:00:00 +0000",
+)
+
+
 def test_write_optional_lines():
-    commit = Commit(SHA_A, "Subject", author="Ole <ole@x>", date="2026-02-25 05:59:29 +0100")
-    plain = write([commit])
+    plain = write([INFO_COMMIT])
     assert "Author:" not in plain and "/-/commit/" not in plain
     assert plain.endswith(f"commit {SHA_A}\n\n    Subject\n")  # blank margin, as in git log
 
-    full = write([commit], repo_url="https://gl/g/r", commit_link=True, info=True)
+    full = write([INFO_COMMIT], repo_url="https://gl/g/r", commit_link=True, author_info=True)
     assert f"# https://gl/g/r/-/commit/{SHA_A}\n" in full
-    assert "Author: Ole <ole@x>\n" in full
-    assert "Date:   2026-02-25 05:59:29 +0100\n\n    Subject\n" in full
+    assert "Author:     Ole <ole@x>\n" in full
+    assert "AuthorDate: 2026-02-25 05:59:29 +0100\n\n    Subject\n" in full
+    assert "Commit" not in full
     assert full.endswith("\n")
 
     result = parse(full)
     assert result.errors == []
-    assert result.blocks[0].info == {"Author": "Ole <ole@x>", "Date": "2026-02-25 05:59:29 +0100"}
+    assert result.blocks[0].info == {
+        "Author": "Ole <ole@x>",
+        "AuthorDate": "2026-02-25 05:59:29 +0100",
+    }
+    assert result.blocks[0].info_lines == {"Author": 5, "AuthorDate": 6}
+
+
+def test_write_commit_info_and_both():
+    committer_only = write([INFO_COMMIT], commit_info=True)
+    assert "Author" not in committer_only
+    assert "Commit:     Bot <bot@x>\nCommitDate: 2026-02-26 10:00:00 +0000\n\n" in committer_only
+
+    both = write([INFO_COMMIT], author_info=True, commit_info=True)
+    info = parse(both).blocks[0].info
+    assert list(info) == ["Author", "AuthorDate", "Commit", "CommitDate"]
+    assert info["Commit"] == "Bot <bot@x>" and info["CommitDate"] == "2026-02-26 10:00:00 +0000"
 
 
 def test_tab_indent_and_trailing_whitespace_are_tolerated():

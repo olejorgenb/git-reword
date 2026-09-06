@@ -24,6 +24,14 @@ HEADER = """\
 
 """
 
+# Info line keys, named as in `git log --pretty=fuller`. The author pair is
+# editable and applied; the committer pair is display only, since a
+# rewritten commit always gets the current user and time as committer.
+AUTHOR_KEYS = ("Author", "AuthorDate")
+COMMITTER_KEYS = ("Commit", "CommitDate")
+INFO_KEYS = frozenset(AUTHOR_KEYS + COMMITTER_KEYS)
+_INFO_WIDTH = 12  # `AuthorDate: ` is the widest key, as in --pretty=fuller
+
 _COMMIT_RE = re.compile(r"^commit[ \t]+(?P<sha>\S+)[ \t]*$")
 # Full sha or an abbreviation; git accepts 4 hex digits as the shortest.
 _SHA_RE = re.compile(r"^[0-9a-f]{4,64}$")
@@ -54,7 +62,8 @@ class Block:
     end_line: int = 0  # exclusive; the block spans lines [line, end_line)
     message: str = ""  # cleaned message, "" when empty
     subject_line: int | None = None
-    info: dict[str, str] = field(default_factory=dict)
+    info: dict[str, str] = field(default_factory=dict)  # key -> stripped value
+    info_lines: dict[str, int] = field(default_factory=dict)  # key -> 0-based line
 
 
 @dataclass
@@ -199,6 +208,7 @@ def parse(text: str) -> ParseResult:
 
         if (m := _INFO_RE.match(line)) and block is not None and not raw_message:
             block.info[m.group("key")] = m.group("value").strip()
+            block.info_lines[m.group("key")] = lineno
             continue
 
         # Anything else at column 0.
@@ -244,12 +254,28 @@ def _check_subject(subject: str, lineno: int, indent: int, diagnostics: list[Dia
         )
 
 
+def info_line(key: str, value: str) -> str:
+    """One info line, value aligned as `git log --pretty=fuller` does it."""
+    return f"{key + ':':<{_INFO_WIDTH}}{value}\n"
+
+
+def info_values(commit: Commit) -> dict[str, str]:
+    """The four info keys and their values for a commit."""
+    return {
+        "Author": commit.author,
+        "AuthorDate": commit.author_date,
+        "Commit": commit.committer,
+        "CommitDate": commit.committer_date,
+    }
+
+
 def write(
     commits: list[Commit],
     *,
     repo_url: str | None = None,
     commit_link: bool = False,
-    info: bool = False,
+    author_info: bool = False,
+    commit_info: bool = False,
     abbrev: bool = True,
     stats: dict[str, Stat | None] | None = None,
 ) -> str:
@@ -257,9 +283,11 @@ def write(
     line; within a block one blank line separates the header lines from the
     message, as in git log. With `abbrev` the commit line carries the short
     sha (when the commit has one); comments and URLs keep the full sha.
-    `stats` (from `git.get_stats`) adds a comment block after each message,
-    as `git log --stat` does: the summary line, then one line per file. A
-    commit absent from `stats` (a merge) gets none."""
+    `author_info` and `commit_info` add the author and committer info
+    lines. `stats` (from `git.get_stats`) adds a comment block after each
+    message, as `git log --stat` does: the summary line, then one line per
+    file. A commit absent from `stats` (a merge) gets none."""
+    keys = (AUTHOR_KEYS if author_info else ()) + (COMMITTER_KEYS if commit_info else ())
     out = [HEADER]
     for i, commit in enumerate(commits):
         if i:
@@ -267,11 +295,10 @@ def write(
         out.append(f"commit {commit.short if abbrev and commit.short else commit.sha}\n")
         if commit_link and repo_url:
             out.append(f"# {repo_url}/-/commit/{commit.sha}\n")
-        if info:
-            if commit.author:
-                out.append(f"Author: {commit.author}\n")
-            if commit.date:
-                out.append(f"Date:   {commit.date}\n")
+        values = info_values(commit)
+        for key in keys:
+            if values[key]:
+                out.append(info_line(key, values[key]))
         out.append("\n")
         for line in commit.message.split("\n"):
             out.append(f"    {line}\n" if line else "\n")

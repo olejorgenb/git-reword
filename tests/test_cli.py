@@ -7,6 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from git_reword.apply import Edit
 from tests.conftest import MESSAGES, git, messages
 
 
@@ -347,9 +348,9 @@ def _resolver(tmp_path: Path):
     b = Commit("aaaa2222" + "0" * 32, "B")
     path = tmp_path / "REWORD_EDITMSG"
 
-    def run(text: str, capsys) -> tuple[dict[str, str] | None, str]:
-        messages = resolve([a, b], fmt.parse(text), path)
-        return messages, capsys.readouterr().out
+    def run(text: str, capsys) -> tuple[dict[str, Edit] | None, str]:
+        edits = resolve([a, b], fmt.parse(text), path)
+        return edits, capsys.readouterr().out
 
     return run
 
@@ -358,7 +359,8 @@ def test_resolve_cases(tmp_path: Path, capsys):
     """Prefix resolution: ok, ambiguous, unknown and missing, duplicate, order."""
     run = _resolver(tmp_path)
     ok, out = run("commit aaaa1111\n    A\ncommit aaaa2222\n    B2\n", capsys)
-    assert ok == {"aaaa1111" + "0" * 32: "A", "aaaa2222" + "0" * 32: "B2"} and out == ""
+    assert ok == {"aaaa1111" + "0" * 32: Edit("A"), "aaaa2222" + "0" * 32: Edit("B2")}
+    assert out == ""
 
     none, out = run("commit aaaa\n    A\ncommit aaaa2222\n    B\n", capsys)
     assert none is None and "ambiguous sha aaaa" in out
@@ -421,3 +423,107 @@ def test_stat_writes_foldable_comments(repo: Path):
     plain = run_reword(repo, editor, "HEAD~2..HEAD")
     assert plain.returncode == 0
     assert "files changed" not in copy.read_text()
+
+
+def _replace_editor(old: str, new: str, count: int = -1) -> str:
+    return f"""\
+import sys, pathlib
+p = pathlib.Path(sys.argv[1])
+p.write_text(p.read_text().replace({old!r}, {new!r}, {count}))
+"""
+
+
+def _authors(repo: Path) -> list[str]:
+    return git("log", "--reverse", "--format=%an <%ae>", cwd=repo).split("\n")
+
+
+def test_author_search_and_replace(repo: Path):
+    """The use case: every commit in the range was made with the wrong
+    identity; one replace fixes them all, messages and dates untouched."""
+    before = _idents(repo)
+    editor = _replace_editor("Test <test@example.com>", "Ole <ole@example.com>")
+    result = run_reword(repo, editor, "HEAD~3..HEAD", "--author-info")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Detected 3 changed commit(s)" in result.stdout
+    assert "  Author:     Test <test@example.com> -> Ole <ole@example.com>" in result.stdout
+    assert "AuthorDate" not in result.stdout
+
+    assert _authors(repo) == ["Test <test@example.com>"] + ["Ole <ole@example.com>"] * 3
+    assert messages(repo) == MESSAGES
+    after = _idents(repo)
+    assert [i.split("|")[2:] for i in after] == [i.split("|")[2:] for i in before], "dates, trees"
+    assert git("log", "--format=%cn", "-1", cwd=repo) == "Test", "committer is still config"
+
+
+def test_author_date_round_trips(repo: Path):
+    original = git("log", "-1", "--format=%ad", "--date=iso", cwd=repo)
+    editor = _replace_editor(f"AuthorDate: {original}", "AuthorDate: 2020-01-02 03:04:05 +0530")
+    result = run_reword(repo, editor, "HEAD~1..HEAD", "--author-info")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert f"  AuthorDate: {original} -> 2020-01-02 03:04:05 +0530" in result.stdout
+    assert git("log", "-1", "--format=%ad", "--date=raw", cwd=repo) == "1577914445 +0530"
+    assert git("log", "-1", "--format=%an", cwd=repo) == "Test"
+    assert messages(repo) == MESSAGES
+
+
+def test_bad_author_values_are_reported_with_lines(repo: Path):
+    original = git("log", "-1", "--format=%ad", "--date=iso", cwd=repo)
+    editor = f"""\
+import sys, pathlib
+p = pathlib.Path(sys.argv[1])
+text = p.read_text()
+text = text.replace("Author:     Test <test@example.com>", "Author:     Test", 1)
+text = text.replace("AuthorDate: {original}", "AuthorDate: bogus")
+p.write_text(text)
+"""
+    before = git("rev-parse", "HEAD", cwd=repo)
+    result = run_reword(repo, editor, "HEAD~2..HEAD", "--author-info")
+    assert result.returncode == 1
+    edit_file = repo / "REWORD_EDITMSG"
+    lines = edit_file.read_text().split("\n")
+    author_line = lines.index("Author:     Test") + 1
+    date_line = lines.index("AuthorDate: bogus") + 1
+    assert f"{edit_file}:{author_line}: error: Bad author: not a `Name <email>`" in result.stdout
+    assert f"{edit_file}:{date_line}: error: Bad date: invalid date format" in result.stdout
+    assert git("rev-parse", "HEAD", cwd=repo) == before
+
+
+def test_edited_committer_warns_and_proceeds(repo: Path):
+    """A replace on the author name also hits the Commit: line; that is a
+    warning, and the author change still goes through."""
+    editor = _replace_editor("Test <test@example.com>", "Ole <ole@example.com>")
+    result = run_reword(repo, editor, "HEAD~2..HEAD", "--author-info", "--commit-info")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.count("warning: Commit is display only") == 2
+    assert "CommitDate" not in result.stdout
+    assert _authors(repo)[-2:] == ["Ole <ole@example.com>"] * 2
+    assert git("log", "--format=%cn", "-1", cwd=repo) == "Test"
+
+
+def test_unknown_info_key_is_error(repo: Path):
+    editor = _replace_editor("Author:", "Autor:", 1)
+    result = run_reword(repo, editor, "HEAD~2..HEAD", "--author-info")
+    assert result.returncode == 1
+    assert "error: Unknown info line `Autor`; expected Author, AuthorDate" in result.stdout
+    assert (repo / "REWORD_EDITMSG").exists()
+
+
+def test_unchanged_and_reformatted_info_lines_are_not_changes(repo: Path):
+    result = run_reword(repo, "pass", "HEAD~3..HEAD", "--author-info", "--commit-info")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "No changes detected" in result.stdout
+
+    # Whitespace git would strip anyway, and a date in another notation.
+    original = git("log", "-1", "--format=%ad", "--date=iso", cwd=repo)
+    raw = git("log", "-1", "--format=%ad", "--date=raw", cwd=repo)
+    editor = f"""\
+import sys, pathlib
+p = pathlib.Path(sys.argv[1])
+text = p.read_text()
+text = text.replace("Author:     Test <test@example.com>", "Author:  Test   <test@example.com>")
+text = text.replace("AuthorDate: {original}", "AuthorDate: @{raw}")
+p.write_text(text)
+"""
+    result = run_reword(repo, editor, "HEAD~1..HEAD", "--author-info")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "No changes detected" in result.stdout
