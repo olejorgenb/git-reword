@@ -61,3 +61,10 @@ message and original author, `update-ref` the branch once at the end.
 Not started; parked as costing more than it tastes on 2026-09-04, but the
 merge-tree route makes it a loop of three plumbing commands plus a spec
 line saying order matters.
+
+Update 2026-09-06: the apply side is done
+(`prose/plan/2026-09-06/commit-tree-apply.md`). `apply.py` walks HEAD's
+history parents-first with an old-to-new sha map, so a moved parent is
+already handled. What remains for reordering is the `merge-tree
+--write-tree` step for the tree of a moved commit, a dirty-worktree check
+(the tree can change now), and the spec saying order matters.

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -21,30 +23,35 @@ class Commit:
     author: str = ""  # "Name <email>"
     date: str = ""  # author date, iso
     short: str = ""  # git's %h abbreviation, "" when not looked up
+    tree: str = ""
+    parents: list[str] = field(default_factory=list)  # full shas, first parent first
 
     @property
     def subject(self) -> str:
         return self.message.split("\n", 1)[0]
 
 
-def run(*args: str, cwd: Path | str | None = None) -> str:
-    """Run a git command and return stripped stdout."""
+def run(
+    *args: str,
+    cwd: Path | str | None = None,
+    env: Mapping[str, str] | None = None,
+    input: str | None = None,
+) -> str:
+    """Run a git command and return stripped stdout. `env` is added to the
+    inherited environment."""
+    full_env = {**os.environ, **env} if env else None
     try:
-        result = subprocess.run(["git", *args], capture_output=True, text=True, check=True, cwd=cwd)
+        result = subprocess.run(
+            ["git", *args],
+            capture_output=True,
+            text=True,
+            check=True,
+            cwd=cwd,
+            env=full_env,
+            input=input,
+        )
     except subprocess.CalledProcessError as e:
         raise GitError(e.stderr.strip() or str(e)) from e
-    return result.stdout.strip()
-
-
-def config(key: str, cwd: Path | str | None = None) -> str | None:
-    """`git config --get <key>`, or None when it is unset."""
-    result = subprocess.run(
-        ["git", "config", "--get", key], capture_output=True, text=True, cwd=cwd
-    )
-    if result.returncode == 1:
-        return None
-    if result.returncode != 0:
-        raise GitError(result.stderr.strip() or f"git config exited {result.returncode}")
     return result.stdout.strip()
 
 
@@ -121,30 +128,85 @@ def commit_url(repo_url: str, sha: str) -> str:
 
 # %H gives the full sha even for an abbreviated argument. %h is git's own
 # abbreviation, unique in the repository and sized by core.abbrev. Records end
-# with a NUL so a %B with blank lines in it stays one record.
-_LOG_FORMAT = "--format=%H%n%h%n%an <%ae>%n%ad%n%B%x00"
+# with a NUL so a %B with blank lines in it stays one record. The iso date
+# round-trips through GIT_AUTHOR_DATE to the second, offset included.
+_LOG_FORMAT = "--format=%H%n%h%n%T%n%P%n%an <%ae>%n%ad%n%B%x00"
 
 
 def _parse_commit(record: str) -> Commit:
     from git_reword.format import cleanup
 
-    full, short, author, date, *rest = record.strip("\n").split("\n", 4)
+    full, short, tree, parents, author, date, *rest = record.strip("\n").split("\n", 6)
     message = rest[0] if rest else ""
-    return Commit(sha=full, message=cleanup(message), author=author, date=date, short=short)
+    return Commit(
+        sha=full,
+        message=cleanup(message),
+        author=author,
+        date=date,
+        short=short,
+        tree=tree,
+        parents=parents.split(),
+    )
+
+
+def _log(options: list[str], revs: list[str], cwd: Path | str | None) -> list[Commit]:
+    # --end-of-options so an option-shaped rev cannot turn into a git option.
+    out = run(
+        "log", "--reverse", "--date=iso", _LOG_FORMAT, *options, "--end-of-options", *revs, cwd=cwd
+    )
+    return [_parse_commit(record) for record in out.split("\0") if record.strip()]
 
 
 def get_commit(sha: str, cwd: Path | str | None = None) -> Commit:
-    # --end-of-options so an option-shaped `sha` cannot turn into a git option.
-    out = run("log", "-n", "1", "--date=iso", _LOG_FORMAT, "--end-of-options", sha, cwd=cwd)
-    return _parse_commit(out.split("\0", 1)[0])
+    return _log(["-n", "1"], [sha], cwd)[0]
 
 
 def get_commits(commit_range: str, cwd: Path | str | None = None) -> list[Commit]:
     """All commits in the range, oldest first."""
-    out = run(
-        "log", "--reverse", "--date=iso", _LOG_FORMAT, "--end-of-options", commit_range, cwd=cwd
-    )
-    return [_parse_commit(record) for record in out.split("\0") if record.strip()]
+    return _log([], [commit_range], cwd)
+
+
+def history(tip: str, exclude: list[str], cwd: Path | str | None = None) -> list[Commit]:
+    """Commits reachable from `tip` but not from any of `exclude`, parents
+    before children (`--topo-order`, reversed), so a walk can map each
+    commit's parents before it reaches the commit."""
+    return _log(["--topo-order"], [tip, *(f"^{sha}" for sha in exclude)], cwd)
+
+
+def _split_ident(ident: str) -> tuple[str, str]:
+    """`Name <email>` -> (name, email)."""
+    name, sep, email = ident.rpartition(" <")
+    if not sep or not email.endswith(">"):
+        raise GitError(f"not a `Name <email>` identity: {ident!r}")
+    return name, email[:-1]
+
+
+def commit_tree(
+    tree: str,
+    parents: list[str],
+    message: str,
+    *,
+    author: str,
+    author_date: str,
+    cwd: Path | str | None = None,
+) -> str:
+    """Write a commit object and return its sha. Author is taken from the
+    arguments, committer from the usual git config; nothing else is
+    touched. The message is stored as given plus a final newline:
+    `commit-tree` does no cleanup of its own."""
+    name, email = _split_ident(author)
+    env = {"GIT_AUTHOR_NAME": name, "GIT_AUTHOR_EMAIL": email, "GIT_AUTHOR_DATE": author_date}
+    args = [arg for parent in parents for arg in ("-p", parent)]
+    return run("commit-tree", tree, *args, cwd=cwd, env=env, input=message + "\n")
+
+
+def update_ref(
+    ref: str, new: str, old: str, *, message: str, cwd: Path | str | None = None
+) -> None:
+    """Point `ref` at `new`, provided it still points at `old`. Follows a
+    symbolic ref (so `HEAD` moves the checked out branch) and writes
+    `message` to the reflog."""
+    run("update-ref", "-m", message, ref, new, old, cwd=cwd)
 
 
 @dataclass

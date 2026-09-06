@@ -167,9 +167,9 @@ def reword(
         print("No commits found in the specified range")
         return False
 
-    # A GitError here (root commit as the first commit of the range)
-    # propagates to reword_command, which prints it and exits 1.
-    plan = apply_mod.plan_rebase(commits)
+    # A GitError here (range not in HEAD's history, unborn HEAD) propagates
+    # to reword_command, which prints it and exits 1.
+    plan = apply_mod.plan(commits)
 
     print(f"Found {len(commits)} commits to potentially reword")
 
@@ -179,21 +179,6 @@ def reword(
         if not confirm("Continue?", default=False):
             print("Cancelled")
             return False
-
-    if plan.merges:
-        if plan.rebase_merges:
-            print(
-                f"{len(plan.merges)} merge commit(s) in {plan.base[:8]}..HEAD; "
-                "rebasing with --rebase-merges to keep them"
-            )
-        else:
-            print(
-                f"Warning: rebase.rebaseMerges is false; this rebase will flatten "
-                f"{len(plan.merges)} merge commit(s)."
-            )
-            if not confirm("Continue?", default=False):
-                print("Cancelled")
-                return False
 
     edit_file = edit_file_path()
     if continue_:
@@ -245,11 +230,14 @@ def reword(
             keep = True
             return False
 
-        original_head = git.run("rev-parse", "HEAD")
-        print(f"\nPre-reword HEAD: {original_head}")
-        print(f"To revert:       git reset --hard {original_head}")
+        print(f"\nPre-reword HEAD: {plan.head}")
+        print(f"To revert:       git reset --soft {plan.head}")
 
-        success = apply_mod.apply(commits, messages)
+        try:
+            success = apply_mod.apply(plan, changes)
+        except GitError as e:
+            print(f"Error: {e}")
+            success = False
         if not success:
             keep = True
         return success

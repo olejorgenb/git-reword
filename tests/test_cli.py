@@ -1,4 +1,4 @@
-"""End-to-end: real git repo, real rebase, scripted editor."""
+"""End-to-end: real git repo, real commit objects, scripted editor."""
 
 from __future__ import annotations
 
@@ -230,7 +230,6 @@ def test_merge_preserved_and_reworded(repo: Path):
 
     result = run_reword(repo, MERGE_EDITOR, "main..HEAD")
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "--rebase-merges" in result.stdout
 
     assert git("rev-parse", "main", cwd=repo) == main_sha
     merges = git("rev-list", "--merges", "main..HEAD", cwd=repo).split()
@@ -241,40 +240,101 @@ def test_merge_preserved_and_reworded(repo: Path):
     assert git("rev-parse", "HEAD~1^2", cwd=repo) == main_sha
     assert git("log", "-1", "--format=%s", "HEAD~2", cwd=repo) == "Feature one, reworded"
     assert git("log", "-1", "--format=%s", "HEAD", cwd=repo) == "Feature two"
+    assert git("status", "--porcelain", "-uno", cwd=repo) == ""
 
 
-def test_merge_flatten_refused_by_default(repo: Path):
-    _make_feature_merge(repo)
-    git("config", "rebase.rebaseMerges", "false", cwd=repo)
-    before = git("rev-list", "HEAD", cwd=repo).split()
-
-    result = run_reword(repo, MERGE_EDITOR, "main..HEAD", stdin="n\n")
-    assert result.returncode == 1
-    assert "flatten" in result.stdout
-    assert git("rev-list", "HEAD", cwd=repo).split() == before
-    assert not (repo / "REWORD_EDITMSG").exists()
+ROOT_EDITOR = """\
+import sys, pathlib
+p = pathlib.Path(sys.argv[1])
+p.write_text(p.read_text().replace("    Base\\n", "    Base, reworded\\n"))
+"""
 
 
-def test_merge_flatten_confirmed_but_reworded_merge_fails(repo: Path):
-    _make_feature_merge(repo)
-    git("config", "rebase.rebaseMerges", "false", cwd=repo)
-    before = git("rev-list", "HEAD", cwd=repo).split()
-
-    result = run_reword(repo, MERGE_EDITOR, "main..HEAD", stdin="y\ny\n")
-    assert result.returncode == 1
-    assert "not in the rebase todo" in result.stdout + result.stderr
-    assert git("rev-list", "HEAD", cwd=repo).split() == before
-    assert (repo / "REWORD_EDITMSG").exists()
-
-
-def test_root_commit_in_range_refused(repo: Path):
+def test_root_commit_reworded(repo: Path):
     # ".."/no-terminal defaults empty side to HEAD (HEAD..HEAD, empty range),
     # not to the root; the well-known empty-tree sha is the idiom that
     # actually yields the full history, root commit included.
-    result = run_reword(repo, "pass", f"{EMPTY_TREE}..HEAD")
+    result = run_reword(repo, ROOT_EDITOR, f"{EMPTY_TREE}..HEAD")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert messages(repo) == ["Base, reworded", *MESSAGES[1:]]
+    root = git("rev-list", "--max-parents=0", "HEAD", cwd=repo)
+    assert git("log", "-1", "--format=%P", root, cwd=repo) == ""
+
+
+def _idents(repo: Path, rev: str = "HEAD") -> list[str]:
+    """Author name, email, raw date and tree per commit: what a reword must keep."""
+    return git("log", "--format=%an|%ae|%ad|%T", "--date=raw", rev, cwd=repo).split("\n")
+
+
+def test_dirty_worktree_and_staged_changes_are_left_alone(repo: Path):
+    (repo / "f1").write_text("dirty")
+    (repo / "staged").write_text("staged")
+    git("add", "staged", cwd=repo)
+    status = git("status", "--porcelain", "-uno", cwd=repo)
+    idents = _idents(repo)
+
+    result = run_reword(repo, REPLACE_EDITOR, "HEAD~3..HEAD")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert git("status", "--porcelain", "-uno", cwd=repo) == status
+    assert (repo / "f1").read_text() == "dirty"
+    assert _idents(repo) == idents
+
+
+def test_commits_after_the_range_are_carried_along(repo: Path):
+    """HEAD is two commits past the range tip: those are re-minted onto the
+    new parents with everything but their sha intact; commits before the
+    first change keep their sha."""
+    before = git("rev-list", "HEAD", cwd=repo).split()
+    idents = _idents(repo)
+
+    result = run_reword(repo, REPLACE_EDITOR, "HEAD~3..HEAD~1")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Detected 1 changed commit(s)" in result.stdout
+    assert messages(repo)[2].startswith("Second commit, reworded")
+    assert messages(repo)[3] == MESSAGES[3]
+    after = git("rev-list", "HEAD", cwd=repo).split()
+    assert after[0] != before[0], "HEAD descends from a changed commit, so it moved"
+    assert after[2:] == before[2:], "commits before the first change keep their sha"
+    assert _idents(repo) == idents
+    assert git("rev-parse", "HEAD@{1}", cwd=repo) == before[0]
+
+
+def test_detached_head(repo: Path):
+    git("checkout", "-q", "--detach", cwd=repo)
+    main_sha = git("rev-parse", "main", cwd=repo)
+    result = run_reword(repo, REPLACE_EDITOR, "HEAD~3..HEAD")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert git("rev-parse", "main", cwd=repo) == main_sha, "the branch is not touched"
+    assert git("rev-parse", "HEAD", cwd=repo) != main_sha
+    assert messages(repo)[2].startswith("Second commit, reworded")
+
+
+def test_head_moved_during_edit_is_refused(repo: Path):
+    """The editor commits meanwhile: update-ref sees a stale old value and
+    nothing changes."""
+    editor = f"""\
+import sys, pathlib, subprocess
+p = pathlib.Path(sys.argv[1])
+subprocess.run(
+    ["git", "commit", "-q", "--allow-empty", "-m", "sneaky"], cwd={str(repo)!r}, check=True
+)
+p.write_text(p.read_text().replace("    Third commit", "    Third commit, reworded"))
+"""
+    result = run_reword(repo, editor, "HEAD~3..HEAD")
     assert result.returncode == 1
-    assert "root commit" in result.stdout
+    assert "Error:" in result.stdout
+    assert messages(repo) == [*MESSAGES, "sneaky"]
+    assert (repo / "REWORD_EDITMSG").exists()
+
+
+def test_range_not_under_head_is_refused(repo: Path):
+    git("branch", "other", "HEAD", cwd=repo)
+    git("checkout", "-q", "HEAD~2", cwd=repo)
+    result = run_reword(repo, "pass", "other~2..other")
+    assert result.returncode == 1
+    assert "not in HEAD's history" in result.stdout
     assert "Traceback" not in result.stderr
+    assert not (repo / "REWORD_EDITMSG").exists()
 
 
 def _resolver(tmp_path: Path):

@@ -145,8 +145,14 @@ The language server resolves shas through git instead (`git log -n 1`),
 since it has no range to match against; an ambiguous abbreviation is then
 an unknown commit. Links and URLs use the resolved full sha.
 
-When applying, git must be run with `commit.cleanup=whitespace` so that `#`
-lines in messages survive.
+When applying, the tool writes commit objects directly with `commit-tree`,
+which does no cleanup of its own, so the cleanup above is the only one and
+`#` lines in messages survive. Every changed commit and every commit
+descending from one, up to `HEAD`, is re-minted with its original tree,
+author and author date; `HEAD` is then moved once with `update-ref`,
+which fails if `HEAD` moved meanwhile. Unchanged commits before the first
+change keep their sha. The index and working tree are never touched. See
+`prose/plan/2026-09-06/commit-tree-apply.md`.
 
 ## File location
 

@@ -86,3 +86,52 @@ def test_get_stats(repo: Path) -> None:
         "side": git.Stat("1 file changed, 1 insertion(+)", [("A", "s")]),
         "merge": None,
     }
+
+
+def test_commit_tree_round_trips_message_and_author(repo: Path) -> None:
+    head = git.get_commit("HEAD", cwd=repo)
+    assert head.tree and head.parents == [git_cmd("rev-parse", "HEAD~1", cwd=repo)]
+
+    message = "Subject\n\n# a hash line\n\nbody"
+    sha = git.commit_tree(
+        head.tree,
+        head.parents,
+        message,
+        author="Some One <some@one.example>",
+        author_date="2026-02-25 05:59:29 +0100",
+        cwd=repo,
+    )
+    minted = git.get_commit(sha, cwd=repo)
+    assert minted.message == message
+    assert minted.tree == head.tree and minted.parents == head.parents
+    assert minted.author == "Some One <some@one.example>"
+    assert git_cmd("log", "-1", "--format=%ad", "--date=raw", sha, cwd=repo) == "1771995569 +0100"
+    # Committer comes from config, not from the author arguments.
+    assert git_cmd("log", "-1", "--format=%cn", sha, cwd=repo) == "Test"
+    # Nothing points at it: the repository is unchanged.
+    assert git_cmd("rev-parse", "HEAD", cwd=repo) == head.sha
+
+
+def test_commit_tree_root_and_bad_ident(repo: Path) -> None:
+    tree = git_cmd("rev-parse", "HEAD^{tree}", cwd=repo)
+    sha = git.commit_tree(tree, [], "root", author="A <a@b>", author_date="", cwd=repo)
+    assert git.get_commit(sha, cwd=repo).parents == []
+    with pytest.raises(git.GitError, match="Name <email>"):
+        git.commit_tree(tree, [], "x", author="no email", author_date="", cwd=repo)
+
+
+def test_history_orders_parents_first(repo: Path) -> None:
+    shas = git_cmd("rev-list", "--reverse", "HEAD", cwd=repo).split("\n")
+    assert [c.sha for c in git.history("HEAD", [shas[0]], cwd=repo)] == shas[1:]
+    assert [c.sha for c in git.history("HEAD", [], cwd=repo)] == shas
+
+
+def test_update_ref_follows_head_and_checks_old_value(repo: Path) -> None:
+    old = git_cmd("rev-parse", "HEAD", cwd=repo)
+    parent = git_cmd("rev-parse", "HEAD~1", cwd=repo)
+    git.update_ref("HEAD", parent, old, message="test", cwd=repo)
+    assert git_cmd("rev-parse", "main", cwd=repo) == parent
+    assert git_cmd("symbolic-ref", "HEAD", cwd=repo) == "refs/heads/main"
+    assert "test" in git_cmd("reflog", "-1", "main", cwd=repo)
+    with pytest.raises(git.GitError):
+        git.update_ref("HEAD", old, old, message="stale", cwd=repo)

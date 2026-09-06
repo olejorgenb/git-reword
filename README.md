@@ -9,9 +9,12 @@ git reword HEAD~5..HEAD     # a range
 ```
 
 Commit messages for the range are written to `REWORD_EDITMSG` at the
-worktree root, opened in `$EDITOR`, and the changed ones are applied with an
-interactive rebase. The file is transient; the tool adds its name to
-`.git/info/exclude` on first use unless `.gitignore` already covers it.
+worktree root, opened in `$EDITOR`, and the changed ones are applied by
+writing new commit objects (`git commit-tree`) and moving `HEAD` once. The
+index and the working tree are never touched, so a dirty worktree is fine.
+`HEAD@{1}` and `git reset --soft` get the old history back. The file is
+transient; the tool adds its name to `.git/info/exclude` on first use
+unless `.gitignore` already covers it.
 
 The file looks like `git log` output. Column 0 is structure, indented lines
 are the message:
@@ -45,11 +48,10 @@ Flags:
 Abbreviated shas are resolved against the commits of the range when the file is 
 read back; an ambiguous or unknown prefix is an error.
 
-Merge commits in the rebased span are kept: git-reword rebases with
-`--rebase-merges` whenever the range contains one, unless
-`rebase.rebaseMerges` is explicitly set to false, in which case it warns
-that the rebase would flatten them and asks before continuing. Merge
-commit messages can be reworded like any other commit's.
+Merge commits are kept, and their messages can be reworded like any other
+commit's. Commits after the range up to `HEAD` are carried along onto the
+new history; commits before the first change keep their sha. The range
+must be in `HEAD`'s history.
 
 ## Language server
 
