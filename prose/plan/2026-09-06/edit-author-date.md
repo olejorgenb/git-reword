@@ -12,9 +12,17 @@ Spec: `prose/spec/reword-format.md`, "Line classification", "Writing",
 
 - **Keys follow `git log --pretty=fuller`**: `Author:`, `AuthorDate:`,
   `Commit:`, `CommitDate:`. The current `Date:` (author date) is renamed;
-  nothing reads it yet so the rename is free now. `--info` emits all four
-  so the two identities are visible side by side, which is the point when
-  the committer is about to be reset by the rewrite anyway.
+  nothing reads it yet so the rename is free now.
+- **Two flags replace `--info`**: `--author-info` emits `Author:` and
+  `AuthorDate:`, `--commit-info` emits `Commit:` and `CommitDate:`. Each
+  is useful alone: the author lines for editing (or just context while
+  rewording), the committer lines to see the two identities side by side
+  when the rewrite is about to reset the committer. Four lines per commit
+  is too much for plain rewording, and a `--info` / `--info=fuller`
+  optional-value option is not a thing typer does well. `--info` goes
+  away; nothing depends on it. `--commit-info` mirrors git's `Commit:`
+  key; the help text says "committer" so it is not read as "about the
+  commit" next to `--commit-link`.
 - **`Author` and `AuthorDate` are editable.** `Commit` and `CommitDate`
   are display only: every re-minted commit gets the current user and now,
   as with any rewrite in git. An edited `Commit`/`CommitDate` line is a
@@ -38,7 +46,8 @@ Spec: `prose/spec/reword-format.md`, "Line classification", "Writing",
 ## Steps
 
 1. **Spec.** Rename `Date:` to `AuthorDate:`, add `Commit:` and
-   `CommitDate:` to the example and to `--info`. "Line classification":
+   `CommitDate:` to the example; `--info` becomes `--author-info` and
+   `--commit-info` under "Writing". "Line classification":
    info lines with a known key are read back; `Author` and `AuthorDate`
    are applied, `Commit` and `CommitDate` are display only and editing
    them is a warning, unknown keys are errors. "Reading back": the
@@ -56,8 +65,9 @@ Spec: `prose/spec/reword-format.md`, "Line classification", "Writing",
    raises `GitError` with git's message ("invalid date format: ...",
    "empty ident name ...") on bad input. Both verified against git 2.55
    on 2026-09-06.
-3. **format.py.** `write` emits the four lines under `--info`, aligned
-   like `git log --pretty=fuller`. `parse` keeps `Block.info` as the raw
+3. **format.py.** `write(..., author_info, commit_info)` emits the two
+   pairs of lines, aligned like `git log --pretty=fuller`; `cli.py` grows
+   the two flags and drops `--info`. `parse` keeps `Block.info` as the raw
    `{key: value}`; it does not know which keys mean what, so the grammar
    and the parser stay format-only. A new `INFO_KEYS` constant lists the
    four with their editability for the two consumers.
@@ -83,20 +93,20 @@ Spec: `prose/spec/reword-format.md`, "Line classification", "Writing",
    If the key should be highlighted differently for editable versus
    display-only keys, that is a `highlights.scm` query on the key text;
    skip unless it turns out useful.
-7. **Tests.** Format: write with `--info` has all four lines and parses
-   back into `info`. CLI: author search-and-replace across three commits
+7. **Tests.** Format: write with each flag has its two lines, both give
+   all four, and they parse back into `info`. CLI: author search-and-replace across three commits
    changes `%an %ae` on exactly those and nothing else; date edit
    round-trips through `--date=raw`; bad date and missing `<email>` are
    reported with line numbers and nothing is written; edited `Commit:`
-   warns and the run proceeds; `Autor:` is an error; unchanged `--info`
+   warns and the run proceeds; `Autor:` is an error; unchanged info
    lines are not a change. LSP: the three diagnostics and the hover.
 8. **Docs.** README flag description and the example; mention the
    search-and-replace use case in one line.
 
 ## Open
 
-- Whether `--info` should default on, or get a config key, once the lines
-  are useful for editing. Off for now; the flag is one word.
+- Whether `--author-info` should default on, or get a config key, once
+  the lines are useful for editing. Off for now; the flag is one word.
 - Whether an unchanged `Author:` line on a re-minted commit should ever
   mean "keep the committer too" (`--committer-date-is-author-date` style).
   No: git's own rewrites reset the committer, and a flag can do it later.
