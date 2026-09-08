@@ -15,5 +15,5 @@ languages = ["Reword"]
 # grammar, then reinstall the dev extension.
 [grammars.reword]
 repository = "file:///home/ole/src/git-reword"
-rev = "c8f9dc5e31f3a0721009ab1958d0e50b5346b1fa"
+rev = "4326f4810512d8b1eeec67430b4c09c516e55b9f"
 path = "tree-sitter-reword"
