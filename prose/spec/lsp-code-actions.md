@@ -15,6 +15,7 @@ file and is offered from any line.
 | Indent line(s) | quickfix | selection contains `short-indent` / `unindented-line` diagnostics |
 | Revert `<sha>` to its original message / author / committer | refactor.rewrite | the block is changed: its message differs, or with `edit-info` an info value does; the title names what changed |
 | Reflow paragraph | refactor.rewrite | cursor is in a body paragraph (see Reflow) |
+| Wrap long lines in all commits | refactor.rewrite | some body line in the file has more than 72 columns of text and can be broken (see Wrapping long lines) |
 | Add file stats to `<sha>` | refactor.rewrite | the block has no stat block and is not a merge (see Adding file stats) |
 | Add file stats to all commits | refactor.rewrite | two or more such blocks in the file |
 | Open `<sha>` in Zed | (command) | client is Zed |
@@ -140,6 +141,28 @@ reflows. Rewrapping changes line breaks the author may have chosen, so it
 stays an explicit action. In Zed, `editor: rewrap` does the same thing when
 `allow_rewrap` is `anywhere` and `preferred_line_length` is 76, but it does
 not know about subjects and trailers; the server action does.
+
+## Wrapping long lines
+
+A whole-file hard wrap, for pasted or unwrapped bodies, so the paragraphs
+need not be reflowed one by one. Every body line with more than 72
+columns of text is broken at whitespace, greedily, like `fold -s`. Lines
+that fit are kept as they are and lines are never joined, so text that is
+already wrapped, lists and trailers keep their shape. A word longer than
+72 stays whole on its own line. The first piece keeps the line's indent
+inside the message; the continuations get none, and the spaces at a break
+go away.
+
+Subjects are never wrapped, and comment, info and commit lines are not
+message lines. Lines that cannot be broken (one long word, such as a URL)
+do not count, so the action is not offered for them alone. It is offered
+anywhere in the file, cursor or not, since it covers every commit. The
+edit replaces each wrapped line only. It is text-only, so no git and no
+resolve step.
+
+This is the dumb version: a long list item or line of code is wrapped
+flush left. Knowing which lines to leave alone, or to indent the
+continuation of, is for later.
 
 ## Adding file stats
 

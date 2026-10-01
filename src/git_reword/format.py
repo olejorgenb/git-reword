@@ -187,6 +187,24 @@ def reflow(lines: list[str], width: int = WIDTH) -> list[str]:
     return out
 
 
+def wrap_line(text: str, width: int = WIDTH) -> list[str]:
+    """Break one line of message text (indent stripped) at whitespace,
+    greedily, like `fold -s`. A word longer than `width` is a piece of its
+    own. The first piece keeps the text's leading whitespace; text that
+    fits comes back whole."""
+    if len(text) <= width:
+        return [text]
+    out: list[str] = []
+    current = text[: len(text) - len(text.lstrip())]
+    for word in text.split():
+        if current.strip() and len(current) + 1 + len(word) > width:
+            out.append(current)
+            current = ""
+        current = f"{current} {word}" if current.strip() else current + word
+    out.append(current)
+    return out
+
+
 def parse(text: str) -> ParseResult:
     blocks: list[Block] = []
     diagnostics: list[Diagnostic] = []

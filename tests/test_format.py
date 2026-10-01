@@ -201,6 +201,19 @@ def test_cleanup(raw: str, clean: str):
     assert cleanup(raw) == clean
 
 
+def test_wrap_line():
+    words = " ".join(["word"] * 10)  # 49 columns
+    url = "https://example.com/" + "x" * 30
+    assert format_mod.wrap_line(words, width=20) == ["word word word word"] * 2 + ["word word"]
+    assert format_mod.wrap_line("  - " + words, width=20) == [
+        "  - word word word",
+        "word word word word",
+        "word word word",
+    ]
+    assert format_mod.wrap_line(f"see {url} here", width=20) == ["see", url, "here"]
+    assert format_mod.wrap_line("  fits", width=20) == ["  fits"]
+
+
 def test_reflow_joins_and_wraps():
     lines = [
         "    This is a paragraph written with short",

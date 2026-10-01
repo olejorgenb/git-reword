@@ -76,7 +76,8 @@ anywhere inside a worktree. It provides:
 - document symbols (outline): one per commit, subject plus short sha
 - hover on a `commit` line: author, committer, dates, original message
 - code actions: revert a commit to its original message, reflow the
-  paragraph under the cursor to 72 columns, indent misindented lines, open
+  paragraph under the cursor to 72 columns, wrap every long body line in
+  the file (subjects are left alone), indent misindented lines, open
   the commit in the forge (from `origin`), and in Zed open it in Zed's
   commit view
 - document links on shas, and formatting that normalises indentation
