@@ -134,6 +134,25 @@ def message_diff(old: str, new: str, *, color: bool = False) -> str:
     return "\n".join(out)
 
 
+def print_references(
+    plan: apply_mod.Plan,
+    changes: list[tuple[Commit, apply_mod.Edit]],
+    edits: dict[str, apply_mod.Edit],
+) -> None:
+    """List the shas of rewritten commits named in messages: the holder,
+    the token as written, the subject of the commit it names."""
+    found, ambiguous = apply_mod.references(plan, changes, edits)
+    subjects = {c.sha: c.subject for c in plan.history}
+    if found:
+        print("\nReferences to rewritten commits, updated on apply:")
+        for ref in found:
+            print(f"  {ref.commit.sha[:8]}  {ref.token}  ({subjects[ref.target]})")
+    if ambiguous:
+        print("\nLeft as is, matches more than one rewritten commit:")
+        for ref in ambiguous:
+            print(f"  {ref.commit.sha[:8]}  {ref.token}")
+
+
 def open_editor(editor: str | None, path: Path) -> int:
     editor = editor or os.environ.get("EDITOR", "vim")
     cmd = shlex.split(editor) if " " in editor else [editor]
@@ -169,6 +188,7 @@ def reword(
     abbrev: bool,
     continue_: bool,
     force: bool,
+    sha_rewrite: bool = True,
 ) -> bool:
     commits = git.get_commits(commit_range)
     if not commits:
@@ -238,6 +258,9 @@ def reword(
             if edit.message != commit.message:
                 print(message_diff(commit.message, edit.message, color=sys.stdout.isatty()))
 
+        if sha_rewrite:
+            print_references(plan, changes, edits)
+
         if not confirm("\nApply these changes?", default=True):
             print("Cancelled")
             keep = True
@@ -247,7 +270,7 @@ def reword(
         print(f"To revert:       git reset --soft {plan.head}")
 
         try:
-            success = apply_mod.apply(plan, changes, edits)
+            success = apply_mod.apply(plan, changes, edits, rewrite_shas=sha_rewrite)
         except GitError as e:
             print(f"Error: {e}")
             success = False
@@ -322,6 +345,13 @@ def reword_command(
     force: Annotated[
         bool, typer.Option("--force", help="Overwrite an edit file left by an earlier run")
     ] = False,
+    sha_rewrite: Annotated[
+        bool,
+        typer.Option(
+            "--sha-rewrite/--no-sha-rewrite",
+            help="Update shas of rewritten commits named in messages",
+        ),
+    ] = True,
 ) -> None:
     """Bulk edit git commit messages in your editor."""
     if not git.in_repo():
@@ -345,6 +375,7 @@ def reword_command(
             abbrev=abbrev,
             continue_=continue_,
             force=force,
+            sha_rewrite=sha_rewrite,
         )
     except GitError as e:
         print(f"Error: {e}")

@@ -52,6 +52,8 @@ Flags:
   and `--continue` know about it
 - `--stat` adds the files each commit touched as comment lines after the message
 - `--no-abbrev` writes full shas instead of git's abbreviations (`--abbrev`, the default)
+- `--no-sha-rewrite` leaves shas of rewritten commits named in messages
+  (`This reverts commit …`) as written; by default they are updated
 - `--continue` reopens the file from an aborted run
 - `--force` discards any previous aborted run
  

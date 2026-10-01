@@ -164,13 +164,71 @@ def changed_commits(commits: list[Commit], edits: dict[str, Edit]) -> list[tuple
     return changes
 
 
-def apply(
+def _all_edits(
+    changes: list[tuple[Commit, Edit]], edits: dict[str, Edit] | None
+) -> dict[str, Edit]:
+    return {**(edits or {}), **{c.sha: edit for c, edit in changes}}
+
+
+def reminted(plan: Plan, changes: list[tuple[Commit, Edit]]) -> list[Commit]:
+    """Every commit a rewrite writes anew, in history order: the changed
+    ones and every commit with a re-minted parent."""
+    changed = {c.sha for c, _ in changes}
+    seen: set[str] = set()
+    out: list[Commit] = []
+    for commit in plan.history:
+        if commit.sha in changed or any(p in seen for p in commit.parents):
+            seen.add(commit.sha)
+            out.append(commit)
+    return out
+
+
+@dataclass(frozen=True)
+class Reference:
+    """A sha in a re-minted commit's message naming an earlier re-minted
+    commit (spec: reword-format.md, References to rewritten commits)."""
+
+    commit: Commit  # the commit holding the reference
+    start: int  # offsets of the token in the message it will get
+    end: int
+    token: str  # as written
+    target: str  # the full old sha it names; for an ambiguous one, the first match
+
+
+def references(
     plan: Plan, changes: list[tuple[Commit, Edit]], edits: dict[str, Edit] | None = None
+) -> tuple[list[Reference], list[Reference]]:
+    """(references to update, ambiguous ones), in history order. A token
+    counts only against commits re-minted before the one holding it: a
+    message can only name its ancestors."""
+    edits = _all_edits(changes, edits)
+    earlier: list[Commit] = []
+    found: list[Reference] = []
+    ambiguous: list[Reference] = []
+    for commit in reminted(plan, changes):
+        message = (edits.get(commit.sha) or Edit(commit.message)).message
+        for m in fmt.SHA_REF_RE.finditer(message):
+            targets = [c.sha for c in earlier if c.sha.startswith(m[0])]
+            if targets:
+                ref = Reference(commit, m.start(), m.end(), m[0], targets[0])
+                (found if len(targets) == 1 else ambiguous).append(ref)
+        earlier.append(commit)
+    return found, ambiguous
+
+
+def apply(
+    plan: Plan,
+    changes: list[tuple[Commit, Edit]],
+    edits: dict[str, Edit] | None = None,
+    *,
+    rewrite_shas: bool = True,
 ) -> bool:
     """Re-mint the changed commits and their descendants, then move HEAD.
     `edits` are the blocks of every commit in the range (`changes` is the
     subset that differs): an unchanged block still says what its commit
-    keeps when it is re-minted for a changed parent.
+    keeps when it is re-minted for a changed parent. With `rewrite_shas`,
+    shas in the re-minted messages that name an earlier re-minted commit
+    are updated to its new sha.
 
     All or nothing: the objects are written first and become reachable
     only with the final update-ref, which fails if HEAD moved meanwhile.
@@ -178,22 +236,42 @@ def apply(
     if not changes:
         return True
 
-    changed = {c.sha for c, _ in changes}
-    edits = {**(edits or {}), **{c.sha: edit for c, edit in changes}}
+    edits = _all_edits(changes, edits)
+    held: dict[str, list[Reference]] = {}
+    if rewrite_shas:
+        for ref in references(plan, changes, edits)[0]:
+            held.setdefault(ref.commit.sha, []).append(ref)
+    shorts: dict[tuple[str, int], str] = {}
+    updated: list[str] = []
+
     mapped: dict[str, str] = {}
-    for commit in plan.history:
-        if commit.sha not in changed and not any(p in mapped for p in commit.parents):
-            continue
+    for commit in reminted(plan, changes):
         edit = edits.get(commit.sha) or Edit(commit.message)
+        message = edit.message
+        replaced: list[tuple[str, str]] = []
+        # From the end backwards, so earlier offsets stay valid.
+        for ref in reversed(held.get(commit.sha, [])):
+            new_sha = mapped[ref.target]
+            if len(ref.token) == len(ref.target):
+                token = new_sha
+            else:
+                key = (ref.target, len(ref.token))
+                if key not in shorts:
+                    shorts[key] = git.short(new_sha, len(ref.token))
+                token = shorts[key]
+            message = message[: ref.start] + token + message[ref.end :]
+            replaced.append((ref.token, token))
         mapped[commit.sha] = git.commit_tree(
             commit.tree,
             [mapped.get(p, p) for p in commit.parents],
-            edit.message,
+            message,
             author=edit.author or commit.author,
             author_date=edit.author_date or commit.author_date,
             committer=edit.committer,
             committer_date=edit.committer_date,
         )
+        holder = mapped[commit.sha][:8]
+        updated += [f"  {holder} {old} -> {new}" for old, new in reversed(replaced)]
 
     new_head = mapped.get(plan.head)
     if new_head is None:
@@ -202,6 +280,9 @@ def apply(
 
     n_changed, n_minted = len(changes), len(mapped)
     print(f"Rewrote {n_changed} commit(s), {n_minted - n_changed} descendant(s) re-minted")
+    if updated:
+        print("Updated shas of rewritten commits in messages:")
+        print("\n".join(updated))
     git.update_ref("HEAD", new_head, plan.head, message=f"reword: {n_changed} commit(s)")
     print(f"HEAD is now {new_head[:8]} (was {plan.head[:8]}, see HEAD@{{1}})")
     return True
