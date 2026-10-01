@@ -46,6 +46,30 @@ COMMITTER_KEYS = ("Commit", "CommitDate")
 INFO_KEYS = frozenset(AUTHOR_KEYS + COMMITTER_KEYS)
 _INFO_WIDTH = 12  # `AuthorDate: ` is the widest key, as in --pretty=fuller
 
+# The file's syntax in brief, for an agent asked to edit it (the language
+# server's "Discuss with agent" actions). Kept here so it changes with the
+# format; prose/spec/reword-format.md is the full story.
+AGENT_GUIDE = f"""\
+The file's syntax:
+- Each commit is a block that starts with a `commit <sha>` line at column 0.
+- Column-0 lines are structure: `commit` lines, `Key: value` info lines \
+(Author, AuthorDate, Commit, CommitDate) right after the `commit` line, \
+and `#` comments. Comments are dropped when the file is applied; the \
+comment lines after a message (file stats, links) are not part of it.
+- The message is the lines indented by exactly 4 spaces (or one tab) \
+under the block's `commit` and info lines. Its first line is the subject, \
+then an empty line, then the body. An empty line inside a message is \
+just empty. Indented lines starting with `#` are message text, not \
+comments.
+- Keep the subject within {SUBJECT_MAX} characters and wrap the body at \
+{WIDTH} characters of text (76 columns with the indent). Trailers \
+(`Key: value`) go in the last paragraph.
+- Info lines are display only, unless the header has the line \
+`# git-reword-options: {EDIT_INFO_OPTION}`: then the Author and \
+AuthorDate lines (and Commit and CommitDate, when present) are applied \
+as written.
+"""
+
 _COMMIT_RE = re.compile(r"^commit[ \t]+(?P<sha>\S+)[ \t]*$")
 # Full sha or an abbreviation; git accepts 4 hex digits as the shortest.
 SHA_RE = re.compile(r"^[0-9a-f]{4,64}$")
