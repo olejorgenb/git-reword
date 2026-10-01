@@ -121,6 +121,23 @@ class Analysis:
     def result(self) -> fmt.ParseResult:
         return fmt.parse(self.text)
 
+    @cached_property
+    def message_shas(self) -> list[tuple[int, re.Match[str], Commit]]:
+        """(line, match, commit) for every token in a message line that
+        names a commit. Comment lines (`#` at column 0) are not scanned."""
+        if self.repo is None:
+            return []
+        out = []
+        for block in self.result.blocks:
+            start, end = block.message_lines
+            for i in range(start, end):
+                if self.lines[i].startswith("#"):
+                    continue
+                for m in fmt.SHA_REF_RE.finditer(self.lines[i]):
+                    if (commit := self.repo.commit(m[0])) is not None:
+                        out.append((i, m, commit))
+        return out
+
     # -- lookups -----------------------------------------------------------
 
     def block_at(self, line: int) -> fmt.Block | None:
@@ -384,6 +401,16 @@ class Analysis:
         return out
 
     def hover(self, position: lsp.Position) -> lsp.Hover | None:
+        for line, m, commit in self.message_shas:
+            if line == position.line and m.start() <= position.character < m.end():
+                value = (
+                    f"`{commit.short or commit.sha[:8]}` {commit.subject}  \n"
+                    f"Author: {commit.author} · {commit.author_date}"
+                )
+                return lsp.Hover(
+                    contents=lsp.MarkupContent(lsp.MarkupKind.Markdown, value),
+                    range=_range(line, m.start(), m.end()),
+                )
         block = self.block_at(position.line)
         if block is None or position.line != block.line:
             return None
@@ -432,6 +459,11 @@ class Analysis:
             if fmt.SHA_RE.match(b.sha) and (target := self.link_target(self.full_sha(b))):
                 url, tooltip = target
                 out.append(lsp.DocumentLink(range=self.sha_range(b), target=url, tooltip=tooltip))
+        for line, m, commit in self.message_shas:
+            if target := self.link_target(commit.sha):
+                url, tooltip = target
+                link_range = _range(line, m.start(), m.end())
+                out.append(lsp.DocumentLink(range=link_range, target=url, tooltip=tooltip))
         root = self.repo.root if self.repo else None
         if root is None:
             return out

@@ -150,6 +150,43 @@ def test_links(edit_file: Path):
     )
 
 
+def _with_sha_lines(edit_file: Path, repo: Path) -> tuple[str, str]:
+    """The edit file with Third's body naming Second by its 7-digit and
+    full sha, plus a hex word and a comment line naming it; and Second's sha."""
+    second = git_cmd("rev-parse", "HEAD~1", cwd=repo)
+    text = edit_file.read_text().replace(
+        "    Body\n",
+        f"    Body\n# {second}\n    See {second[:7]} and {second}, defaced.\n",
+    )
+    return text, second
+
+
+def test_shas_in_messages_link_and_hover(edit_file: Path, repo: Path):
+    text, second = _with_sha_lines(edit_file, repo)
+    a = analyse(edit_file, text)
+    line = a.lines.index(f"    See {second[:7]} and {second}, defaced.")
+    links = [x for x in a.links() if x.range.start.line == line]
+    assert [(x.range.start.character, x.range.end.character) for x in links] == [
+        (8, 15),
+        (20, 60),
+    ]
+    assert {x.target for x in links} == {f"https://gitlab.com/group/repo/-/commit/{second}"}
+    assert not [x for x in a.links() if x.range.start.line == line - 1], "comment line"
+
+    for character in (8, 14, 20, 59):
+        hover = a.hover(lsp.Position(line, character))
+        assert hover is not None
+        assert "Second commit" in hover.contents.value
+        assert "Author: Test <test@example.com>" in hover.contents.value
+    assert a.hover(lsp.Position(line, 63)) is None  # defaced
+    assert a.hover(lsp.Position(line - 1, 4)) is None  # the comment line
+
+    z = Analysis(a.uri, a.text, a.repo, client="Zed")
+    targets = [x.target for x in z.links() if x.range.start.line == line]
+    assert all(t.startswith(f"zed://git/commit/{second}?repo=") for t in targets)
+    assert len(targets) == 2
+
+
 def test_stat_paths_link_to_files(edit_file: Path, repo: Path):
     commits = git.get_commits("HEAD~3..HEAD", cwd=repo)
     text = fmt.write(commits, stats=git.get_stats("HEAD~3..HEAD", cwd=repo))
