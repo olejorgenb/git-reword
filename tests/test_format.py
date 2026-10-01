@@ -320,3 +320,16 @@ def test_message_lines():
     assert a.message_lines == (4, 8)
     assert b.message_lines == (13, 15)
     assert c.message_lines == (16, 16)
+
+
+def test_sha_ref_pattern():
+    full = "0123456789abcdef" * 2 + "01234567"
+
+    def found(text: str) -> list[str]:
+        return [m[0] for m in format_mod.SHA_REF_RE.finditer(text)]
+
+    assert found(f"This reverts commit {full}.") == [full]
+    assert found(f"https://gitlab.com/g/r/-/commit/{full}") == [full]
+    assert found(f"https://github.com/o/r/commit/{full[:12]}") == [full[:12]]
+    assert found("fixes a1b2c3d, see defaced") == ["a1b2c3d", "defaced"]
+    assert found("undefaced 123456 x1234567 1234567_a 1234567A") == []

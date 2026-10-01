@@ -73,6 +73,9 @@ as written.
 _COMMIT_RE = re.compile(r"^commit[ \t]+(?P<sha>\S+)[ \t]*$")
 # Full sha or an abbreviation; git accepts 4 hex digits as the shortest.
 SHA_RE = re.compile(r"^[0-9a-f]{4,64}$")
+# A sha named in message text: 7-64 lowercase hex, not part of a longer word.
+# Only finds candidates; hex words match too, a commit lookup filters them.
+SHA_REF_RE = re.compile(r"(?<![0-9A-Za-z_])[0-9a-f]{7,64}(?![0-9A-Za-z_])")
 _INFO_RE = re.compile(r"^(?P<key>[A-Za-z][A-Za-z-]*):(?P<value>.*)$")
 # A comment to the grammar, a directive to the tool.
 _OPTIONS_RE = re.compile(r"^#[ \t]*git-reword-options:(?P<options>.*)$")
