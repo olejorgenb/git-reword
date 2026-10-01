@@ -313,5 +313,5 @@ def detect_branch_range() -> str:
         raise GitError(
             "Could not determine main branch. Run: git remote set-head origin --auto"
         ) from e
-    main_branch = main_ref.removeprefix("refs/remotes/origin/")
+    main_branch = main_ref.removeprefix("refs/remotes/")
     return f"{main_branch}..HEAD"
