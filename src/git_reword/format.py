@@ -339,7 +339,12 @@ def write(
         for line in commit.message.split("\n"):
             out.append(f"    {line}\n" if line else "\n")
         if stats is not None and (stat := stats.get(commit.sha)) is not None:
-            out.append(f"\n#   {stat.summary or 'no files changed'}\n")
-            for status, path in stat.files:
-                out.append(f"#   {status}  {path}\n")
+            out.append(stat_block(stat))
     return "".join(out)
+
+
+def stat_block(stat: Stat) -> str:
+    """The `--stat` comment block, leading blank line included: the summary,
+    then one line per file. Also what the language server inserts."""
+    lines = [stat.summary or "no files changed"] + [f"{s}  {p}" for s, p in stat.files]
+    return "\n" + "".join(f"#   {line}\n" for line in lines)
