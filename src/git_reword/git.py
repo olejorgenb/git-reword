@@ -248,6 +248,12 @@ def commit_tree(
     return run("commit-tree", tree, *args, cwd=cwd, env=env, input=message + "\n")
 
 
+def short(sha: str, length: int, cwd: Path | str | None = None) -> str:
+    """git's abbreviation of `sha`: at least `length` characters, more when
+    that prefix is ambiguous in the repository."""
+    return run("rev-parse", f"--short={length}", "--end-of-options", sha, cwd=cwd)
+
+
 def update_ref(
     ref: str, new: str, old: str, *, message: str, cwd: Path | str | None = None
 ) -> None:
