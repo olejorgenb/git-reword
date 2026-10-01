@@ -203,6 +203,42 @@ which fails if `HEAD` moved meanwhile. Unchanged commits before the first
 change keep their sha. The index and working tree are never touched. See
 `prose/plan/2026-09-06/commit-tree-apply.md`.
 
+### References to rewritten commits
+
+A message can name another commit by its sha: `This reverts commit
+<sha>.` from `git revert`, "fixes the bug from `a1b2c3d`", a forge URL.
+Once that commit is re-minted, the sha in the message is stale. So while
+re-minting, the tool updates such references in every commit it
+re-mints:
+
+- **What is a reference.** A run of 7 to 64 lowercase hex digits with no
+  letter, digit or `_` on either side, which is a prefix of exactly one
+  commit re-minted earlier in the same run. Shorter runs are left alone:
+  abbreviations under 7 digits are rare in prose, while hex words
+  ("added", "cafe", "decade") are not. A run that is a prefix of two
+  re-minted commits is left alone and reported.
+- **What it becomes.** The new sha, cut to the same length, or longer
+  when that prefix is not unique: `git rev-parse --short=<length>`, asked
+  after the new commit is written. A full sha stays full.
+- **Which messages.** The message each re-minted commit gets: the edited
+  one for a block in the file, the original for a commit re-minted
+  without a block (a descendant after the range). The rewrite does not
+  count as a change; whether a commit is changed is decided from the file
+  as written.
+- **Never more commits.** A message can only name commits that existed
+  when it was written, so only ancestors (a commit's sha depends on its
+  ancestors). A commit that names a re-minted ancestor descends from it
+  and is re-minted anyway. The rewrite changes the text of commits that
+  are re-minted, never which commits are. Commits are written parents
+  first, so every new sha is known before a descendant needs it.
+
+Before asking whether to apply, the summary lists every reference that
+will be updated: the commit holding it, the sha as written, and the
+subject of the commit it names. This includes commits after the range,
+which are not in the file. After applying, each update is printed as
+`old -> new`. `--no-sha-rewrite` turns it off, for a sha that is meant
+literally or a false match the summary shows.
+
 ## File location
 
 The tool writes the file to `<worktree root>/REWORD_EDITMSG`, the top level
@@ -247,10 +283,11 @@ up from the file looking for a repo and degrades gracefully if none is found.
   is not possible in Zed because combined injections merge across the whole
   buffer, so message highlighting lives in this grammar.
 - Language server: diagnostics for every error above plus advisory ones
-  (subject length, non-blank second line), hover with the original message,
-  code actions (see `lsp-code-actions.md`: indent, revert to original,
-  reflow, add file stats, open in Zed or the forge, discuss with Zed's
-  agent), links, document
-  symbols, formatting (fix indentation), folding ranges (per block, per
-  body, and per run of comment lines, which is what makes a `--stat` block
-  collapse to its summary line).
+  (subject length, non-blank second line, and hints on shas in messages),
+  hover with the original message, code actions (see
+  `lsp-code-actions.md`: indent, revert to original, reflow, add file
+  stats, open in Zed or the forge, discuss with Zed's agent), links (on
+  `commit` lines, on shas in messages, and on stat paths), hover on shas
+  in messages, document symbols, formatting (fix indentation), folding
+  ranges (per block, per body, and per run of comment lines, which is
+  what makes a `--stat` block collapse to its summary line).

@@ -1,8 +1,8 @@
 # Language server code actions
 
 Companion to `reword-format.md`. Describes what the language server offers
-beyond diagnostics and formatting (code actions, links, folding), and how
-"open this commit" reaches an editor or a forge.
+beyond diagnostics and formatting (code actions, links, shas in messages,
+folding), and how "open this commit" reaches an editor or a forge.
 
 ## Actions
 
@@ -75,6 +75,33 @@ when that file exists. For a rename or copy, `old -> new`, only the new
 path is linked. The server recognises the shape, not the origin, so a
 hand-written comment of that shape links as well; no worktree root, no
 links.
+
+## Shas in messages
+
+A message line can name another commit: "This reverts commit <sha>.",
+"fixes a1b2c3d", a forge URL. The token rule is the writer's (see
+`reword-format.md`, References to rewritten commits): 7 to 64 lowercase
+hex digits with no letter, digit or `_` on either side. Each such token
+is looked up the same way `commit` lines are, through the cached commit
+lookup. Only message lines are scanned; comment lines are not.
+
+| The token | Gets |
+|---|---|
+| names a commit | a document link with the same target and tooltip as a `commit` line (Zed's commit view in Zed, otherwise the forge), and a hover: short sha, subject, author and date |
+| names the commit of a block that this reword re-mints | also a hint, `sha-rewritten`: "updated to the new sha on apply" |
+| names a commit that is not in `HEAD`'s history | also a hint, `sha-not-on-branch`: "not on this branch; rewritten or dropped?" |
+| names nothing | nothing; hex words and foreign shas stay quiet |
+
+A block's commit is re-minted when that block or any earlier block is
+changed. Blocks are in history order and the set of commits is fixed (see
+`reword-format.md`, Reading back), and a commit before the range never
+changes. The hint ignores `--no-sha-rewrite`, which the server never
+sees; its message says so.
+
+Checking `HEAD`'s history costs one `git merge-base --is-ancestor` per
+distinct sha, cached with the commit lookup for the life of the server.
+`HEAD` rarely moves while the file is open. When it does, a stale answer
+lasts until the server restarts, which is acceptable for a hint.
 
 ## Reflow
 
