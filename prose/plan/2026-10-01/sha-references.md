@@ -21,6 +21,11 @@ Checks for the pattern:
 - it does not match `defaced` inside `undefaced`, a 6-digit run, or a run
   inside an identifier such as `x1234567` or `1234567_a`.
 
+A bare hex word such as `defaced` *does* match the pattern. That's
+intended: the pattern only finds candidates. What filters them is the
+lookup: a prefix of a re-minted commit when applying, a commit git knows
+in the server. Don't try to exclude hex words in the regex.
+
 ## Part 1: rewriting when applying
 
 ### `git.py`
@@ -127,8 +132,9 @@ In `analysis.py`:
 
 - `message_shas() -> list[tuple[int, re.Match, Commit]]` gives (line,
   match, commit) for every token in a message line that names a commit.
-  The lines come from each block's `message_lines` range, skipping lines
-  that start with `#` (comments). The commit comes from `Repo.commit`,
+  The lines come from each block's `message_lines` range, skipping
+  comment lines: those with `#` at column 0. An indented `    # …` line
+  is message text and is scanned. The commit comes from `Repo.commit`,
   which is cached per token, including misses. The method is cached on
   the `Analysis`, like `result`.
 - `links()` adds a link for each one, with the same target and tooltip
@@ -138,8 +144,10 @@ In `analysis.py`:
   answers: `` `<short>` <subject> ``, then `Author: … · <date>`, with the
   token as the range.
 
-Tests (`tests/test_lsp.py`): add a message line naming the Second commit
-by its 7-digit and full sha, plus "defaced", to the fixture text. Assert:
+Tests (`tests/test_lsp.py`): in the test's own copy of the text (passed
+to `analyse(path, text)`, leaving the shared `edit_file` fixture as it
+is), add a message line naming the Second commit by its 7-digit and full
+sha, plus "defaced". Assert:
 - two links, targeting the forge URL, or the Zed URL with a Zed client;
 - the hover on each token gives Second's subject;
 - no link or hover on "defaced" or on a comment line naming the sha.
@@ -173,6 +181,11 @@ Tests:
   have no diagnostics, so its text names no shas.
 
 ## Steps (one commit each)
+
+Work on a branch, `sha-references`. Run the tests, `ruff check`,
+`ruff format --check` and `ty check src` after each step; ty is clean on
+`src`, while `tests` has older errors that don't need fixing. Run `uv`
+with `--offline`.
 
 1. `format.py`: `SHA_REF_RE`, with tests for the pattern.
 2. `git.py`: `short`, with a test.
