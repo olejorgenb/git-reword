@@ -108,6 +108,21 @@ def test_get_stats(repo: Path) -> None:
         "merge": None,
     }
 
+    # Exactly the named commits, merges left out, same Stats as for the range.
+    sha_of = {c.subject: c.sha for c in commits}
+    picked = [sha_of["rename"], sha_of["Third commit"], sha_of["merge"]]
+    assert git.get_commit_stats(picked, cwd=repo) == {
+        sha: stats[sha] for sha in picked if sha in stats
+    }
+    assert git.get_commit_stats([], cwd=repo) == {}
+
+
+def test_get_commit_stats_root(repo: Path) -> None:
+    root = git_cmd("rev-list", "--max-parents=0", "HEAD", cwd=repo)
+    assert git.get_commit_stats([root], cwd=repo) == {
+        root: git.Stat("1 file changed, 1 insertion(+)", [("A", "f0")])
+    }
+
 
 def test_commit_tree_round_trips_message_and_author(repo: Path) -> None:
     head = git.get_commit("HEAD", cwd=repo)

@@ -269,11 +269,15 @@ class Stat:
 _STAT_FORMAT = "--format=%x00%H %P"
 
 
-def _stat_records(commit_range: str, flag: str, cwd: Path | str | None) -> dict[str, list[str]]:
+def _stat_records(
+    revs: list[str], flag: str, cwd: Path | str | None, *, walk: bool = True
+) -> dict[str, list[str]]:
     """{sha: non-blank lines git printed after the header} for every commit
-    in the range, skipping merges (their diff depends on which parent you
-    ask about, so they get no stat)."""
-    out = run("log", _STAT_FORMAT, flag, "--end-of-options", commit_range, cwd=cwd)
+    `revs` name (a range, or with `walk=False` exactly the given commits),
+    skipping merges (their diff depends on which parent you ask about, so
+    they get no stat)."""
+    no_walk = [] if walk else ["--no-walk=unsorted"]
+    out = run("log", _STAT_FORMAT, flag, *no_walk, "--end-of-options", *revs, cwd=cwd)
     records: dict[str, list[str]] = {}
     for record in out.split("\0"):
         if not record.strip():
@@ -286,14 +290,10 @@ def _stat_records(commit_range: str, flag: str, cwd: Path | str | None) -> dict[
     return records
 
 
-def get_stats(commit_range: str, cwd: Path | str | None = None) -> dict[str, Stat | None]:
-    """{sha: Stat} for the range; None for merge commits.
-
-    Two log calls, because --name-status silences --shortstat when both
-    are given.
-    """
-    names = _stat_records(commit_range, "--name-status", cwd)
-    summaries = _stat_records(commit_range, "--shortstat", cwd)
+def _stats(revs: list[str], cwd: Path | str | None, *, walk: bool) -> dict[str, Stat | None]:
+    # Two log calls, because --name-status silences --shortstat when both are given.
+    names = _stat_records(revs, "--name-status", cwd, walk=walk)
+    summaries = _stat_records(revs, "--shortstat", cwd, walk=walk)
     stats: dict[str, Stat | None] = {}
     for sha, lines in names.items():
         files = []
@@ -303,6 +303,16 @@ def get_stats(commit_range: str, cwd: Path | str | None = None) -> dict[str, Sta
         summary = summaries.get(sha, [])
         stats[sha] = Stat(summary=summary[0].strip() if summary else "", files=files)
     return stats
+
+
+def get_stats(commit_range: str, cwd: Path | str | None = None) -> dict[str, Stat | None]:
+    """{sha: Stat} for the range; merge commits are left out."""
+    return _stats([commit_range], cwd, walk=True)
+
+
+def get_commit_stats(shas: list[str], cwd: Path | str | None = None) -> dict[str, Stat | None]:
+    """{full sha: Stat} for exactly the given commits; merges are left out."""
+    return _stats(shas, cwd, walk=False) if shas else {}
 
 
 def detect_branch_range() -> str:
