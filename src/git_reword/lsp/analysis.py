@@ -90,6 +90,14 @@ def _indent(message: str) -> str:
     return "".join(f"    {line}\n" if line else "\n" for line in message.split("\n"))
 
 
+def _open_action(title: str, url: str) -> lsp.CodeAction:
+    return lsp.CodeAction(
+        title=title,
+        kind=lsp.CodeActionKind.Empty,
+        command=lsp.Command(title="Open commit", command=OPEN_COMMIT_COMMAND, arguments=[url]),
+    )
+
+
 @dataclass
 class Analysis:
     uri: str
@@ -240,7 +248,8 @@ class Analysis:
 
     # -- features ----------------------------------------------------------
 
-    def diagnostics(self) -> list[lsp.Diagnostic]:
+    def parse_diagnostics(self) -> list[lsp.Diagnostic]:
+        """The parser's diagnostics, no git lookups."""
         out = []
         for d in self.result.diagnostics:
             end = d.end_col if d.end_col is not None else len(self.lines[d.line])
@@ -253,6 +262,10 @@ class Analysis:
                     source=SOURCE,
                 )
             )
+        return out
+
+    def diagnostics(self) -> list[lsp.Diagnostic]:
+        out = self.parse_diagnostics()
         if self.repo is None:
             return out
         for block in self.result.blocks:
@@ -428,91 +441,101 @@ class Analysis:
     def code_actions(self, range_: lsp.Range, *, lazy: bool = False) -> list[lsp.CodeAction]:
         """Actions for the range. `lazy` when the client resolves `edit`
         through codeAction/resolve: expensive edits are then left out."""
-        actions: list[lsp.CodeAction] = []
+        line = range_.start.line
+        block = self.block_at(line)
+        return [
+            *self._indent_actions(range_),
+            *self._revert_actions(block),
+            *self._reflow_actions(line),
+            *self._stat_actions(block, lazy=lazy),
+            *self._open_actions(block),
+        ]
 
+    def _indent_actions(self, range_: lsp.Range) -> list[lsp.CodeAction]:
+        # Only the parser reports these, so skip the git-backed diagnostics.
         fixable = [
             d
-            for d in self.diagnostics()
+            for d in self.parse_diagnostics()
             if d.code in INDENT_FIX_CODES
             and range_.start.line <= d.range.start.line <= range_.end.line
         ]
-        if fixable:
-            edits = [
-                lsp.TextEdit(
-                    self.line_range(d.range.start.line),
-                    "    " + self.lines[d.range.start.line].lstrip(" "),
-                )
-                for d in fixable
-            ]
-            actions.append(
-                lsp.CodeAction(
-                    title="Indent line" if len(edits) == 1 else f"Indent {len(edits)} lines",
-                    kind=lsp.CodeActionKind.QuickFix,
-                    diagnostics=fixable,
-                    edit=lsp.WorkspaceEdit(changes={self.uri: edits}),
-                    is_preferred=True,
-                )
+        if not fixable:
+            return []
+        edits = [
+            lsp.TextEdit(
+                self.line_range(d.range.start.line),
+                "    " + self.lines[d.range.start.line].lstrip(" "),
             )
+            for d in fixable
+        ]
+        return [
+            lsp.CodeAction(
+                title="Indent line" if len(edits) == 1 else f"Indent {len(edits)} lines",
+                kind=lsp.CodeActionKind.QuickFix,
+                diagnostics=fixable,
+                edit=lsp.WorkspaceEdit(changes={self.uri: edits}),
+                is_preferred=True,
+            )
+        ]
 
-        block = self.block_at(range_.start.line)
-        stat_blocks = [b for b in self.result.blocks if self.wants_stat(b)] if self.repo else []
-        if block is None:
-            if len(stat_blocks) > 1:
-                actions.append(self.all_stats_action(stat_blocks, lazy=lazy))
-            return actions
-
-        if self.changed(block):
-            original = self.original(block)
-            assert original is not None
-            edits: list[lsp.TextEdit] = []
-            originals = fmt.info_values(original)
-            for key, line in block.info_lines.items():
-                if key in fmt.INFO_KEYS and block.info[key] != originals[key]:
-                    edits.append(
-                        lsp.TextEdit(
-                            lsp.Range(lsp.Position(line, 0), lsp.Position(line + 1, 0)),
-                            fmt.info_line(key, originals[key]),
-                        )
-                    )
-            if block.message != original.message:
-                start, end = block.message_lines
+    def _revert_actions(self, block: fmt.Block | None) -> list[lsp.CodeAction]:
+        if block is None or not self.changed(block):
+            return []
+        original = self.original(block)
+        assert original is not None
+        edits: list[lsp.TextEdit] = []
+        originals = fmt.info_values(original)
+        for key, line in block.info_lines.items():
+            if key in fmt.INFO_KEYS and block.info[key] != originals[key]:
                 edits.append(
                     lsp.TextEdit(
-                        lsp.Range(lsp.Position(start, 0), lsp.Position(end, 0)),
-                        _indent(original.message),
+                        lsp.Range(lsp.Position(line, 0), lsp.Position(line + 1, 0)),
+                        fmt.info_line(key, originals[key]),
                     )
                 )
-            what = " and ".join(self.changed_parts(block))
-            actions.append(
-                lsp.CodeAction(
-                    title=f"Revert {block.sha[:8]} to its original {what}",
-                    kind=lsp.CodeActionKind.RefactorRewrite,
-                    edit=lsp.WorkspaceEdit(changes={self.uri: edits}),
+        if block.message != original.message:
+            start, end = block.message_lines
+            edits.append(
+                lsp.TextEdit(
+                    lsp.Range(lsp.Position(start, 0), lsp.Position(end, 0)),
+                    _indent(original.message),
                 )
             )
+        what = " and ".join(self.changed_parts(block))
+        return [
+            lsp.CodeAction(
+                title=f"Revert {block.sha[:8]} to its original {what}",
+                kind=lsp.CodeActionKind.RefactorRewrite,
+                edit=lsp.WorkspaceEdit(changes={self.uri: edits}),
+            )
+        ]
 
-        if paragraph := self.paragraph_at(range_.start.line):
-            start, end = paragraph
-            new_lines = fmt.reflow(self.lines[start:end])
-            if new_lines != self.lines[start:end]:
-                actions.append(
-                    lsp.CodeAction(
-                        title="Reflow paragraph",
-                        kind=lsp.CodeActionKind.RefactorRewrite,
-                        edit=lsp.WorkspaceEdit(
-                            changes={
-                                self.uri: [
-                                    lsp.TextEdit(
-                                        lsp.Range(lsp.Position(start, 0), lsp.Position(end, 0)),
-                                        "".join(f"{line}\n" for line in new_lines),
-                                    )
-                                ]
-                            }
-                        ),
-                    )
-                )
+    def _reflow_actions(self, line: int) -> list[lsp.CodeAction]:
+        paragraph = self.paragraph_at(line)
+        if paragraph is None:
+            return []
+        start, end = paragraph
+        new_lines = fmt.reflow(self.lines[start:end])
+        if new_lines == self.lines[start:end]:
+            return []
+        edit = lsp.TextEdit(
+            lsp.Range(lsp.Position(start, 0), lsp.Position(end, 0)),
+            "".join(f"{line}\n" for line in new_lines),
+        )
+        return [
+            lsp.CodeAction(
+                title="Reflow paragraph",
+                kind=lsp.CodeActionKind.RefactorRewrite,
+                edit=lsp.WorkspaceEdit(changes={self.uri: [edit]}),
+            )
+        ]
 
-        if block in stat_blocks:
+    def _stat_actions(self, block: fmt.Block | None, *, lazy: bool) -> list[lsp.CodeAction]:
+        """One for the block, one for all commits when more than one wants it."""
+        stat_blocks = [b for b in self.result.blocks if self.wants_stat(b)] if self.repo else []
+        actions = []
+        # wants_stat is what put a block in stat_blocks, so ask it directly.
+        if block is not None and self.wants_stat(block):
             actions.append(
                 self.stat_action(
                     f"Add file stats to {block.sha[:8]}", [self.full_sha(block)], lazy=lazy
@@ -520,22 +543,17 @@ class Analysis:
             )
         if len(stat_blocks) > 1:
             actions.append(self.all_stats_action(stat_blocks, lazy=lazy))
+        return actions
 
-        def open_action(title: str, url: str) -> lsp.CodeAction:
-            return lsp.CodeAction(
-                title=title,
-                kind=lsp.CodeActionKind.Empty,
-                command=lsp.Command(
-                    title="Open commit", command=OPEN_COMMIT_COMMAND, arguments=[url]
-                ),
-            )
-
-        if self.repo is not None:
-            sha = self.full_sha(block)
-            if self.is_zed and (zed_url := self.repo.zed_url(sha)):
-                actions.append(open_action(f"Open {block.sha[:8]} in Zed", zed_url))
-            if url := self.repo.commit_url(sha):
-                actions.append(open_action(f"Open {block.sha[:8]} in browser", url))
+    def _open_actions(self, block: fmt.Block | None) -> list[lsp.CodeAction]:
+        if block is None or self.repo is None:
+            return []
+        actions = []
+        sha = self.full_sha(block)
+        if self.is_zed and (zed_url := self.repo.zed_url(sha)):
+            actions.append(_open_action(f"Open {block.sha[:8]} in Zed", zed_url))
+        if url := self.repo.commit_url(sha):
+            actions.append(_open_action(f"Open {block.sha[:8]} in browser", url))
         return actions
 
     def formatted(self) -> str:
