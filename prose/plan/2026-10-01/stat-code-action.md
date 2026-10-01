@@ -26,12 +26,23 @@ A code action can insert the same block the writer would have written.
   counts.
 - **Merges** get no action, as with the flag: `get_stats` already
   returns None for them.
-- **Git cost.** Zed asks for code actions on every cursor move, so stats
-  are cached per full sha on `Repo`, next to `_commits`. The per-block
-  action costs one batched lookup per new block. The all-commits action
-  does one batched lookup for the uncached shas the first time it's
-  offered, and nothing after that. `codeAction/resolve` would make the
-  edit lazy, but caching is simpler and enough.
+- **The edit is computed lazily, via `codeAction/resolve`.** Editors ask
+  for code actions on cursor moves, so offering the action must not run
+  git. `textDocument/codeAction` returns the two actions with a title,
+  kind and `data` but no `edit`. Deciding to offer them is a text check
+  (the "already has one" rule below). `codeAction/resolve` runs git and
+  fills in `edit`. Zed advertises resolve support for `edit`
+  (`crates/lsp/src/lsp.rs` in the fork).
+  - `data` is `{"uri": ..., "shas": [<full sha>, ...]}`, the blocks to
+    cover. At resolve time the document is analysed again from its
+    current text, and the edit goes to the blocks that still exist and
+    still lack a stat block. So an edit made between the menu opening
+    and the pick does not misplace the insert.
+  - Clients that don't advertise resolve support for `edit` get the edit
+    computed eagerly in the `codeAction` response, by the same function.
+    That costs a git call per request, but only in those editors, and it
+    keeps the action working everywhere.
+  - No cache: git runs once per pick.
 - **Batched lookup.** `get_stats` takes a range today. It gains a form
   that takes explicit shas and runs `git log --no-walk=unsorted`, so
   that one call (two, as today: `--name-status` and `--shortstat`)
@@ -43,7 +54,8 @@ A code action can insert the same block the writer would have written.
 
 1. **Spec.** `lsp-code-actions.md`: two rows in the Actions table, and a
    short "Adding file stats" section with the placement, the "already
-   has one" rule, merges and caching. Commit before the code.
+   has one" rule, merges and the lazy edit (resolve, eager fallback).
+   Commit before the code.
 2. **git.py.** `_stat_records` takes a list of revisions plus a `walk`
    flag (`--no-walk=unsorted` when false, before `--end-of-options`).
    `get_stats(commit_range)` stays as it is; add
@@ -51,14 +63,27 @@ A code action can insert the same block the writer would have written.
 3. **format.py.** `stat_lines(stat) -> str`, the block text including
    its leading blank line, used by `write`.
 4. **analysis.py.**
-   - `Repo.stats(shas) -> dict[str, Stat | None]`, cached, one
-     `get_commit_stats` call for the misses.
    - `Analysis.has_stat(block)` using a `_STAT_SUMMARY_RE`.
-   - `Analysis.stat_edit(block, stat) -> lsp.TextEdit`, an insert at
-     the message end.
-   - The two actions in `code_actions`, after Reflow and before the
-     open actions. They need a repo and a resolved commit.
-5. **Tests** (`test_lsp.py`, `test_git.py`):
+   - `Analysis.stat_edits(shas) -> list[lsp.TextEdit]`: one
+     `get_commit_stats` call, then an insert at the message end of each
+     matching block that still lacks a stat block and isn't a merge.
+   - The two actions in `code_actions`, after Reflow and before the open
+     actions, with `data` and no edit. They need a repo. `code_actions`
+     takes a `resolve: bool` (from the server). When it's false, the
+     edit is filled in at once with `stat_edits`.
+   - Merges are skipped when offering, using `Commit.parents` from the
+     `Repo.commit` lookup. That lookup is already cached and already
+     done for diagnostics, so it adds no git calls.
+5. **server.py.** `CodeActionOptions(resolve_provider=True)`. Read the
+   client's `textDocument.codeAction.resolveSupport.properties` at
+   initialize and pass "edit is resolvable" into `code_actions`. A
+   `CODE_ACTION_RESOLVE` handler re-analyses `data["uri"]` and sets
+   `action.edit` from `stat_edits(data["shas"])`.
+6. **Tests** (`test_lsp.py`, `test_git.py`):
+   - Offering the actions runs no stat lookup (the action has no edit
+     when resolve is supported).
+   - Resolving after an unrelated edit above the block still inserts at
+     the right line.
    - Inserting into a file written without `--stat` gives the same text
      as `fmt.write(..., stats=...)`, both for the per-block action and
      for all commits.
