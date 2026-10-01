@@ -158,30 +158,9 @@ class Analysis:
     def line_range(self, line: int) -> lsp.Range:
         return _range(line, 0, len(self.lines[line]))
 
-    def message_lines(self, block: fmt.Block) -> tuple[int, int]:
-        """[start, end) of the lines holding the message: everything after the
-        comment, info and blank lines that directly follow the `commit` line
-        and before the comment and blank lines that end the block (the
-        writer puts a blank margin before the subject and a `--stat` block
-        after the message; neither is part of the message and edits must
-        leave them alone)."""
-        start = block.line + 1
-        while start < block.end_line and (
-            self.lines[start].startswith("#")
-            or not self.lines[start].strip()
-            or fmt._INFO_RE.match(self.lines[start])
-        ):
-            start += 1
-        end = block.end_line
-        while end > start and (
-            self.lines[end - 1].startswith("#") or not self.lines[end - 1].strip()
-        ):
-            end -= 1
-        return start, end
-
     def has_stat(self, block: fmt.Block) -> bool:
         """Whether a comment line after the message is a stat summary."""
-        _, end = self.message_lines(block)
+        _, end = block.message_lines
         return any(_STAT_SUMMARY_RE.match(self.lines[i]) for i in range(end, block.end_line))
 
     def wants_stat(self, block: fmt.Block) -> bool:
@@ -209,7 +188,7 @@ class Analysis:
         edits = []
         for b in blocks:
             if (stat := stats.get(self.full_sha(b))) is not None:
-                at = lsp.Position(self.message_lines(b)[1], 0)
+                at = lsp.Position(b.message_lines[1], 0)
                 edits.append(lsp.TextEdit(lsp.Range(at, at), fmt.stat_block(stat)))
         return edits
 
@@ -235,7 +214,7 @@ class Analysis:
         block = self.block_at(line)
         if block is None or line == block.subject_line:
             return None
-        msg_start, msg_end = self.message_lines(block)
+        msg_start, msg_end = block.message_lines
 
         def content(i: int) -> str | None:
             c = fmt._strip_indent(self.lines[i])
@@ -496,7 +475,7 @@ class Analysis:
                         )
                     )
             if block.message != original.message:
-                start, end = self.message_lines(block)
+                start, end = block.message_lines
                 edits.append(
                     lsp.TextEdit(
                         lsp.Range(lsp.Position(start, 0), lsp.Position(end, 0)),

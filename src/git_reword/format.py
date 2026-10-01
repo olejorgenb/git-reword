@@ -80,6 +80,20 @@ class Block:
     subject_line: int | None = None
     info: dict[str, str] = field(default_factory=dict)  # key -> stripped value
     info_lines: dict[str, int] = field(default_factory=dict)  # key -> 0-based line
+    # [message_start, message_end): from the first to the last line that is
+    # message content or a malformed line after the `commit` line. Leaves
+    # out the comment, info and blank lines before it and the comment and
+    # blank lines after it (the writer's margin and `--stat` block).
+    message_start: int | None = None
+    message_end: int | None = None
+
+    @property
+    def message_lines(self) -> tuple[int, int]:
+        """[start, end) of the message lines; empty at the block end when
+        there are none."""
+        if self.message_start is None or self.message_end is None:
+            return self.end_line, self.end_line
+        return self.message_start, self.message_end
 
 
 @dataclass
@@ -177,6 +191,12 @@ def parse(text: str) -> ParseResult:
         block = None
         raw_message = []
 
+    def mark_message(lineno: int) -> None:
+        if block is not None:
+            if block.message_start is None:
+                block.message_start = lineno
+            block.message_end = lineno + 1
+
     lines = text.split("\n")
     if lines and lines[-1] == "":
         lines.pop()  # trailing newline
@@ -223,6 +243,7 @@ def parse(text: str) -> ParseResult:
             if block is None:
                 error(lineno, "Message line before any `commit` line", "orphan-line")
                 continue
+            mark_message(lineno)
             if not raw_message:
                 block.subject_line = lineno
                 _check_subject(content, lineno, len(line) - len(content), diagnostics)
@@ -244,6 +265,7 @@ def parse(text: str) -> ParseResult:
             continue
 
         # Anything else at column 0.
+        mark_message(lineno)
         if block is not None and raw_message:
             hint = "message lines must be indented by 4 spaces"
         elif block is not None:

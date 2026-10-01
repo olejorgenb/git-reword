@@ -293,3 +293,30 @@ def test_options_line_errors():
     result = parse("commit " + SHA_A + "\n    S\n# git-reword-options: edit-info\n")
     assert [(d.code, d.line) for d in result.errors] == [("misplaced-options", 2)]
     assert not result.edit_info
+
+
+def test_message_lines():
+    """From the subject (or a malformed line before it) to the last message
+    or malformed line; margins, info lines and a trailing stat block are out."""
+    text = (
+        f"commit {SHA_A}\n"  # 0
+        "# a comment\n"
+        "Author:     Ole <ole@x>\n"
+        "\n"
+        "    Subject\n"  # 4
+        "\n"
+        "    Body\n"
+        "unindented\n"  # 7: malformed, still part of the message
+        "\n"
+        "#   1 file changed\n"
+        "#   M  f\n"
+        "\n"
+        f"commit {SHA_B}\n"  # 12
+        "  Short indent\n"  # 13: malformed, starts the message
+        "    Subject\n"
+        f"commit {'c' * 40}\n"  # 15: no message
+    )
+    a, b, c = parse(text).blocks
+    assert a.message_lines == (4, 8)
+    assert b.message_lines == (13, 15)
+    assert c.message_lines == (16, 16)
