@@ -15,6 +15,7 @@ from git_reword import format as fmt
 from git_reword import git
 from git_reword.lsp.analysis import OPEN_COMMIT_COMMAND, Analysis, Repo
 from git_reword.lsp.open import open_url, opener
+from tests.conftest import git as git_cmd
 
 
 @pytest.fixture
@@ -40,6 +41,12 @@ def apply_edits(text: str, edits: list[lsp.TextEdit]) -> str:
     for e in sorted(edits, key=lambda e: offset(e.range.start), reverse=True):
         text = text[: offset(e.range.start)] + e.new_text + text[offset(e.range.end) :]
     return text
+
+
+def not_stats(actions: list[lsp.CodeAction]) -> list[lsp.CodeAction]:
+    """Leave out the file stats actions, which every block of a file
+    written without --stat gets."""
+    return [x for x in actions if not x.title.startswith("Add file stats")]
 
 
 def test_repo_discovery(edit_file: Path, repo: Path):
@@ -220,8 +227,8 @@ def test_revert_and_open_actions(edit_file: Path):
     text = original.replace("    Second commit", "    Second commit, edited")
     a = analyse(edit_file, text)
     block = a.result.blocks[1]
-    actions = a.code_actions(
-        lsp.Range(lsp.Position(block.line + 2, 0), lsp.Position(block.line + 2, 0))
+    actions = not_stats(
+        a.code_actions(lsp.Range(lsp.Position(block.line + 2, 0), lsp.Position(block.line + 2, 0)))
     )
     titles = [x.title for x in actions]
     assert titles == [
@@ -237,7 +244,9 @@ def test_revert_and_open_actions(edit_file: Path):
 
     # Unchanged block: only the open action.
     other = a.result.blocks[0]
-    actions = a.code_actions(lsp.Range(lsp.Position(other.line, 0), lsp.Position(other.line, 0)))
+    actions = not_stats(
+        a.code_actions(lsp.Range(lsp.Position(other.line, 0), lsp.Position(other.line, 0)))
+    )
     assert [x.title for x in actions] == [f"Open {other.sha[:8]} in browser"]
 
 
@@ -245,11 +254,11 @@ def test_open_in_zed_only_for_zed(edit_file: Path, repo: Path):
     a = analyse(edit_file)
     block = a.result.blocks[0]
     at = lsp.Range(lsp.Position(block.line, 0), lsp.Position(block.line, 0))
-    assert [x.title for x in a.code_actions(at)] == [f"Open {block.sha[:8]} in browser"]
+    assert [x.title for x in not_stats(a.code_actions(at))] == [f"Open {block.sha[:8]} in browser"]
 
     # The name carries the release channel: "Zed Preview", "Zed Dev", ...
     a = Analysis(a.uri, a.text, a.repo, client="Zed Preview")
-    actions = a.code_actions(at)
+    actions = not_stats(a.code_actions(at))
     assert [x.title for x in actions] == [
         f"Open {block.sha[:8]} in Zed",
         f"Open {block.sha[:8]} in browser",
@@ -262,7 +271,7 @@ def test_open_in_zed_only_for_zed(edit_file: Path, repo: Path):
     old = repo / ".git" / "REWORD_EDITMSG"
     old.write_text(a.text)
     a = Analysis(old.as_uri(), a.text, Repo.discover(old), client="Zed")
-    assert [x.title for x in a.code_actions(at)] == [f"Open {block.sha[:8]} in browser"]
+    assert [x.title for x in not_stats(a.code_actions(at))] == [f"Open {block.sha[:8]} in browser"]
 
 
 def test_opener_choice():
@@ -362,6 +371,91 @@ def test_revert_leaves_stat_block_alone(edit_file: Path, repo: Path):
             lsp.Range(lsp.Position(block.line, 0), lsp.Position(block.line, 0))
         )
         assert apply_edits(text, actions[0].edit.changes[a.uri]) == original
+
+
+def stat_actions(a: Analysis, line: int, *, lazy: bool = False) -> dict[str, lsp.CodeAction]:
+    at = lsp.Range(lsp.Position(line, 0), lsp.Position(line, 0))
+    return {
+        x.title: x for x in a.code_actions(at, lazy=lazy) if x.title.startswith("Add file stats")
+    }
+
+
+def test_add_stats_gives_the_writers_text(edit_file: Path, repo: Path):
+    """Per block, one after the other, and all at once: both end up where
+    --stat would have."""
+    commits = git.get_commits("HEAD~3..HEAD", cwd=repo)
+    expected = fmt.write(commits, stats=git.get_stats("HEAD~3..HEAD", cwd=repo))
+
+    text = edit_file.read_text()
+    for i in range(3):
+        a = analyse(edit_file, text)
+        block = a.result.blocks[i]
+        actions = stat_actions(a, block.line + 2)
+        action = actions[f"Add file stats to {block.sha[:8]}"]
+        text = apply_edits(text, action.edit.changes[a.uri])
+    assert text == expected
+
+    a = analyse(edit_file)
+    action = stat_actions(a, a.result.blocks[0].line)["Add file stats to all commits"]
+    assert apply_edits(a.text, action.edit.changes[a.uri]) == expected
+    # Also offered off any block, e.g. on the header.
+    assert list(stat_actions(a, 0)) == ["Add file stats to all commits"]
+
+
+def test_add_stats_not_offered_when_present(edit_file: Path, repo: Path):
+    commits = git.get_commits("HEAD~3..HEAD", cwd=repo)
+    with_stats = fmt.write(commits, stats=git.get_stats("HEAD~3..HEAD", cwd=repo))
+    a = analyse(edit_file, with_stats)
+    assert all(not stat_actions(a, b.line) for b in a.result.blocks)
+
+    # One block left without: its own action, and no all-commits one.
+    text = with_stats.replace("\n#   1 file changed, 1 insertion(+)\n#   A  f3\n", "")
+    a = analyse(edit_file, text)
+    last = a.result.blocks[-1]
+    assert list(stat_actions(a, last.line)) == [f"Add file stats to {last.sha[:8]}"]
+    assert not stat_actions(a, a.result.blocks[0].line)
+
+
+def test_add_stats_skips_merges(repo: Path):
+    git_cmd("checkout", "-q", "-b", "side", "HEAD~1", cwd=repo)
+    (repo / "s").write_text("s")
+    git_cmd("add", "s", cwd=repo)
+    git_cmd("commit", "-q", "-m", "side", cwd=repo)
+    git_cmd("checkout", "-q", "main", cwd=repo)
+    git_cmd("merge", "-q", "--no-ff", "-m", "merge", "side", cwd=repo)
+    path = repo / "REWORD_EDITMSG"
+    a = analyse(path, fmt.write(git.get_commits("HEAD~3..HEAD", cwd=repo)))
+    merge = next(b for b in a.result.blocks if b.message == "merge")
+    assert not any(t.endswith(merge.sha[:8]) for t in stat_actions(a, merge.line))
+    action = stat_actions(a, merge.line)["Add file stats to all commits"]
+    assert a.full_sha(merge) not in action.data["shas"]
+
+
+def test_add_stats_lazy(edit_file: Path, repo: Path, monkeypatch: pytest.MonkeyPatch):
+    """Offering runs no stat lookup; resolving works on the document as it
+    is then, so an edit above the block in between does not misplace it."""
+    commits = git.get_commits("HEAD~3..HEAD", cwd=repo)
+    stats = git.get_stats("HEAD~3..HEAD", cwd=repo)
+    a = analyse(edit_file)
+    block = a.result.blocks[1]
+
+    def no_lookup(*args: object, **kwargs: object) -> None:
+        raise AssertionError("stat lookup while offering")
+
+    with monkeypatch.context() as m:
+        m.setattr(git, "get_commit_stats", no_lookup)
+        action = stat_actions(a, block.line, lazy=True)[f"Add file stats to {block.sha[:8]}"]
+    assert action.edit is None
+    assert action.data == {"action": "add-stats", "uri": a.uri, "shas": [a.full_sha(block)]}
+
+    edited = a.text.replace("    First commit\n", "    First commit\n\n    More body.\n")
+    b = analyse(edit_file, edited)
+    sha = a.full_sha(block)
+    expected = fmt.write(commits, stats={sha: stats[sha]})
+    expected = expected.replace("    First commit\n", "    First commit\n\n    More body.\n")
+    assert apply_edits(edited, b.stat_edits(action.data["shas"])) == expected
+    # Resolving again after it was applied adds nothing.
+    assert analyse(edit_file, expected).stat_edits(action.data["shas"]) == []
 
 
 def test_formatting(edit_file: Path):
@@ -500,6 +594,67 @@ def test_stdio_server(edit_file: Path, repo: Path, tmp_path_factory):
             time.sleep(0.05)
         assert opened.read_text().strip() == cmd["arguments"][0]
         assert opened.read_text().startswith("zed://git/commit/")
+
+        shutdown_id = c.send("shutdown", {})
+        c.wait_for(id_=shutdown_id)
+        c.send("exit", {}, request=False)
+        assert proc.wait(timeout=10) == 0
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+
+
+def test_stdio_resolve_stats(edit_file: Path, repo: Path):
+    """A client that resolves `edit` gets the stats action without one, and
+    the edit from codeAction/resolve."""
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "git_reword.lsp.server"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    try:
+        c = Client(proc)
+        resolve = {"textDocument": {"codeAction": {"resolveSupport": {"properties": ["edit"]}}}}
+        init_id = c.send(
+            "initialize", {"processId": None, "rootUri": repo.as_uri(), "capabilities": resolve}
+        )
+        caps = c.wait_for(id_=init_id)["result"]["capabilities"]
+        assert caps["codeActionProvider"]["resolveProvider"] is True
+        c.send("initialized", {}, request=False)
+
+        uri = edit_file.as_uri()
+        text = edit_file.read_text()
+        c.send(
+            "textDocument/didOpen",
+            {"textDocument": {"uri": uri, "languageId": "reword", "version": 1, "text": text}},
+            request=False,
+        )
+        line = {"line": 3, "character": 0}
+        ca_id = c.send(
+            "textDocument/codeAction",
+            {
+                "textDocument": {"uri": uri},
+                "range": {"start": line, "end": line},
+                "context": {"diagnostics": []},
+            },
+        )
+        actions = c.wait_for(id_=ca_id)["result"]
+        action = next(x for x in actions if x["title"] == "Add file stats to all commits")
+        assert "edit" not in action
+
+        res_id = c.send("codeAction/resolve", action)
+        resolved = c.wait_for(id_=res_id)["result"]
+        edits = [
+            lsp.TextEdit(
+                lsp.Range(lsp.Position(**e["range"]["start"]), lsp.Position(**e["range"]["end"])),
+                e["newText"],
+            )
+            for e in resolved["edit"]["changes"][uri]
+        ]
+        commits = git.get_commits("HEAD~3..HEAD", cwd=repo)
+        stats = git.get_stats("HEAD~3..HEAD", cwd=repo)
+        assert apply_edits(text, edits) == fmt.write(commits, stats=stats)
 
         shutdown_id = c.send("shutdown", {})
         c.wait_for(id_=shutdown_id)

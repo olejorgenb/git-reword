@@ -9,7 +9,7 @@ from pathlib import Path
 from lsprotocol import types as lsp
 from pygls.lsp.server import LanguageServer
 
-from git_reword.lsp.analysis import OPEN_COMMIT_COMMAND, Analysis, Repo
+from git_reword.lsp.analysis import ADD_STATS, OPEN_COMMIT_COMMAND, Analysis, Repo
 from git_reword.lsp.open import open_url
 
 log = logging.getLogger("git-reword-lsp")
@@ -32,6 +32,14 @@ class RewordServer(LanguageServer):
         window = self.client_capabilities.window
         return bool(window and window.show_document and window.show_document.support)
 
+    def resolves_edits(self) -> bool:
+        """Whether the client fills in a code action's `edit` through
+        codeAction/resolve, so it can be left out of the first answer."""
+        text_document = self.client_capabilities.text_document
+        code_action = text_document.code_action if text_document else None
+        support = code_action.resolve_support if code_action else None
+        return support is not None and "edit" in support.properties
+
     def publish(self, uri: str) -> None:
         self.text_document_publish_diagnostics(
             lsp.PublishDiagnosticsParams(uri=uri, diagnostics=self.analysis(uri).diagnostics())
@@ -44,7 +52,12 @@ server = RewordServer()
 @server.feature(lsp.INITIALIZE)
 def initialize(ls: RewordServer, params: lsp.InitializeParams) -> None:
     ls.client = params.client_info.name if params.client_info else None
-    log.info("initialize: client=%r show_document=%s", ls.client, ls.supports_show_document())
+    log.info(
+        "initialize: client=%r show_document=%s resolve_edit=%s",
+        ls.client,
+        ls.supports_show_document(),
+        ls.resolves_edits(),
+    )
 
 
 @server.feature(lsp.TEXT_DOCUMENT_DID_OPEN)
@@ -82,13 +95,27 @@ def document_symbol(ls: RewordServer, params: lsp.DocumentSymbolParams) -> list[
 @server.feature(
     lsp.TEXT_DOCUMENT_CODE_ACTION,
     lsp.CodeActionOptions(
-        code_action_kinds=[lsp.CodeActionKind.QuickFix, lsp.CodeActionKind.RefactorRewrite]
+        code_action_kinds=[lsp.CodeActionKind.QuickFix, lsp.CodeActionKind.RefactorRewrite],
+        resolve_provider=True,
     ),
 )
 def code_action(ls: RewordServer, params: lsp.CodeActionParams) -> list[lsp.CodeAction]:
-    actions = ls.analysis(params.text_document.uri).code_actions(params.range)
+    analysis = ls.analysis(params.text_document.uri)
+    actions = analysis.code_actions(params.range, lazy=ls.resolves_edits())
     log.info("codeAction line %d: %s", params.range.start.line, [a.title for a in actions])
     return actions
+
+
+@server.feature(lsp.CODE_ACTION_RESOLVE)
+def code_action_resolve(ls: RewordServer, action: lsp.CodeAction) -> lsp.CodeAction:
+    """Fill in a lazy edit, from the document as it is now."""
+    data = action.data if isinstance(action.data, dict) else {}
+    if data.get("action") == ADD_STATS and action.edit is None:
+        uri = data["uri"]
+        edits = ls.analysis(uri).stat_edits(data["shas"])
+        action.edit = lsp.WorkspaceEdit(changes={uri: edits})
+        log.info("codeAction/resolve %r: %d edits", action.title, len(edits))
+    return action
 
 
 @server.feature(lsp.TEXT_DOCUMENT_DOCUMENT_LINK)

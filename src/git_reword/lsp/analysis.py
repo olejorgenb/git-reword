@@ -22,10 +22,13 @@ from git_reword.git import Commit, GitError
 
 SOURCE = "git-reword"
 OPEN_COMMIT_COMMAND = "git-reword.openCommit"
+ADD_STATS = "add-stats"  # `data["action"]` of the file stats actions, for resolve
 INDENT_FIX_CODES = frozenset({"short-indent", "unindented-line"})
 SUBJECT_SEP = "\u00b7 "  # before the subject in a folded block
 # A `--stat` file line: `#   M  path`, or `#   R  old -> new` for renames and copies.
 _STAT_LINE_RE = re.compile(r"^#\s+[MADTRC]  (?:.* -> )?(?P<path>.+)$")
+# A `--stat` summary line: `#   2 files changed, ...` or `#   no files changed`.
+_STAT_SUMMARY_RE = re.compile(r"^#\s+(?:\d+ files? changed|no files changed)")
 
 _SEVERITY = {
     fmt.Severity.ERROR: lsp.DiagnosticSeverity.Error,
@@ -175,6 +178,55 @@ class Analysis:
         ):
             end -= 1
         return start, end
+
+    def has_stat(self, block: fmt.Block) -> bool:
+        """Whether a comment line after the message is a stat summary."""
+        _, end = self.message_lines(block)
+        return any(_STAT_SUMMARY_RE.match(self.lines[i]) for i in range(end, block.end_line))
+
+    def wants_stat(self, block: fmt.Block) -> bool:
+        """Whether the file stats actions apply: a known non-merge commit
+        with a message and no stat block. Uses only the cached commit
+        lookup, no stat lookup, since editors ask on every cursor move."""
+        original = self.original(block)
+        return (
+            original is not None
+            and len(original.parents) <= 1
+            and block.subject_line is not None
+            and not self.has_stat(block)
+        )
+
+    def stat_edits(self, shas: list[str]) -> list[lsp.TextEdit]:
+        """Insert a stat block after the message of each block whose full sha
+        is in `shas` and that still wants one. One stat lookup for all."""
+        wanted = set(shas)
+        blocks = [
+            b for b in self.result.blocks if self.full_sha(b) in wanted and self.wants_stat(b)
+        ]
+        if not blocks or self.repo is None:
+            return []
+        stats = git.get_commit_stats([self.full_sha(b) for b in blocks], cwd=self.repo.git_dir)
+        edits = []
+        for b in blocks:
+            if (stat := stats.get(self.full_sha(b))) is not None:
+                at = lsp.Position(self.message_lines(b)[1], 0)
+                edits.append(lsp.TextEdit(lsp.Range(at, at), fmt.stat_block(stat)))
+        return edits
+
+    def stat_action(self, title: str, shas: list[str], *, lazy: bool) -> lsp.CodeAction:
+        """A file stats action. With `lazy` the edit is left to
+        codeAction/resolve, which calls `stat_edits` with `data`."""
+        return lsp.CodeAction(
+            title=title,
+            kind=lsp.CodeActionKind.RefactorRewrite,
+            data={"action": ADD_STATS, "uri": self.uri, "shas": shas},
+            edit=None if lazy else lsp.WorkspaceEdit(changes={self.uri: self.stat_edits(shas)}),
+        )
+
+    def all_stats_action(self, blocks: list[fmt.Block], *, lazy: bool) -> lsp.CodeAction:
+        return self.stat_action(
+            "Add file stats to all commits", [self.full_sha(b) for b in blocks], lazy=lazy
+        )
 
     def paragraph_at(self, line: int) -> tuple[int, int] | None:
         """[start, end) of the body paragraph containing `line`: a run of
@@ -394,7 +446,9 @@ class Analysis:
                 )
         return out
 
-    def code_actions(self, range_: lsp.Range) -> list[lsp.CodeAction]:
+    def code_actions(self, range_: lsp.Range, *, lazy: bool = False) -> list[lsp.CodeAction]:
+        """Actions for the range. `lazy` when the client resolves `edit`
+        through codeAction/resolve: expensive edits are then left out."""
         actions: list[lsp.CodeAction] = []
 
         fixable = [
@@ -422,7 +476,10 @@ class Analysis:
             )
 
         block = self.block_at(range_.start.line)
+        stat_blocks = [b for b in self.result.blocks if self.wants_stat(b)] if self.repo else []
         if block is None:
+            if len(stat_blocks) > 1:
+                actions.append(self.all_stats_action(stat_blocks, lazy=lazy))
             return actions
 
         if self.changed(block):
@@ -475,6 +532,15 @@ class Analysis:
                         ),
                     )
                 )
+
+        if block in stat_blocks:
+            actions.append(
+                self.stat_action(
+                    f"Add file stats to {block.sha[:8]}", [self.full_sha(block)], lazy=lazy
+                )
+            )
+        if len(stat_blocks) > 1:
+            actions.append(self.all_stats_action(stat_blocks, lazy=lazy))
 
         def open_action(title: str, url: str) -> lsp.CodeAction:
             return lsp.CodeAction(
