@@ -32,6 +32,10 @@ _STAT_LINE_RE = re.compile(r"^#\s+[MADTRC]  (?:.* -> )?(?P<path>.+)$")
 # A `--stat` summary line: `#   2 files changed, ...` or `#   no files changed`.
 _STAT_SUMMARY_RE = re.compile(r"^#\s+(?:\d+ files? changed|no files changed)")
 
+# Shas in messages are coloured by the server (the grammar sees one `text`
+# node per line): a constant variable, styled like the grammar's @constant.
+SEMANTIC_LEGEND = lsp.SemanticTokensLegend(token_types=["variable"], token_modifiers=["constant"])
+
 _SEVERITY = {
     fmt.Severity.ERROR: lsp.DiagnosticSeverity.Error,
     fmt.Severity.WARNING: lsp.DiagnosticSeverity.Warning,
@@ -467,6 +471,17 @@ class Analysis:
             contents=lsp.MarkupContent(lsp.MarkupKind.Markdown, "\n\n".join(parts)),
             range=self.sha_range(block),
         )
+
+    def semantic_tokens(self) -> lsp.SemanticTokens:
+        """One token per sha in a message that names a commit, encoded
+        relative to the previous one as LSP wants."""
+        data: list[int] = []
+        prev_line = prev_start = 0
+        for line, m, _ in self.message_shas:
+            start = m.start() - prev_start if line == prev_line else m.start()
+            data += [line - prev_line, start, m.end() - m.start(), 0, 1]
+            prev_line, prev_start = line, m.start()
+        return lsp.SemanticTokens(data=data)
 
     @property
     def is_zed(self) -> bool:

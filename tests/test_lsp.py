@@ -187,6 +187,14 @@ def test_shas_in_messages_link_and_hover(edit_file: Path, repo: Path):
     assert len(targets) == 2
 
 
+def test_shas_in_messages_semantic_tokens(edit_file: Path, repo: Path):
+    text, second = _with_sha_lines(edit_file, repo)
+    a = analyse(edit_file, text)
+    line = a.lines.index(f"    See {second[:7]} and {second}, defaced.")
+    assert a.semantic_tokens().data == [line, 8, 7, 0, 1, 0, 12, 40, 0, 1]
+    assert analyse(edit_file).semantic_tokens().data == []
+
+
 def _sha_hints(a: Analysis) -> list[tuple[str | int | None, str]]:
     codes = {"sha-rewritten", "sha-not-on-branch"}
     return [
@@ -703,6 +711,8 @@ def test_stdio_server(edit_file: Path, repo: Path, tmp_path_factory):
         assert caps["hoverProvider"] and caps["documentSymbolProvider"]
         assert caps["codeActionProvider"] and caps["documentLinkProvider"]
         assert caps["documentFormattingProvider"]
+        legend = caps["semanticTokensProvider"]["legend"]
+        assert legend == {"tokenTypes": ["variable"], "tokenModifiers": ["constant"]}
         assert OPEN_COMMIT_COMMAND in caps["executeCommandProvider"]["commands"]
         c.send("initialized", {}, request=False)
 

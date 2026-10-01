@@ -80,6 +80,9 @@ anywhere inside a worktree. It provides:
   the commit in the forge (from `origin`), and in Zed open it in Zed's
   commit view
 - document links on shas, and formatting that normalises indentation
+- shas in messages that name a commit: a link, a hover, hints when the
+  commit is rewritten by this reword or not on the branch, and a colour
+  (Zed needs `"semantic_tokens": "combined"` for the language)
 - folding ranges that keep the subject visible: fold the body under a
   subject, or a whole block down to its `commit` line with the subject as
   placeholder; runs of comment lines fold to their first line, so a
