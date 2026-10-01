@@ -588,6 +588,7 @@ class Analysis:
             *self._indent_actions(range_),
             *self._revert_actions(block),
             *self._reflow_actions(line),
+            *self._wrap_actions(),
             *self._stat_actions(block, lazy=lazy),
             *self._open_actions(block),
             *self._agent_actions(block),
@@ -669,6 +670,39 @@ class Analysis:
                 title="Reflow paragraph",
                 kind=lsp.CodeActionKind.RefactorRewrite,
                 edit=lsp.WorkspaceEdit(changes={self.uri: [edit]}),
+            )
+        ]
+
+    def wrap_edits(self) -> list[lsp.TextEdit]:
+        """Break every body line longer than WIDTH that can be broken, each
+        piece behind the line's own indent. Subjects are left alone."""
+        edits = []
+        for block in self.result.blocks:
+            if block.subject_line is None:
+                continue
+            for i in range(block.subject_line + 1, block.message_lines[1]):
+                line = self.lines[i]
+                text = fmt.strip_indent(line)
+                if text is None or len(text) <= fmt.WIDTH:
+                    continue
+                pieces = fmt.wrap_line(text)
+                if len(pieces) == 1:
+                    continue
+                indent = line[: len(line) - len(text)]
+                edits.append(
+                    lsp.TextEdit(self.line_range(i), "\n".join(indent + p for p in pieces))
+                )
+        return edits
+
+    def _wrap_actions(self) -> list[lsp.CodeAction]:
+        edits = self.wrap_edits()
+        if not edits:
+            return []
+        return [
+            lsp.CodeAction(
+                title="Wrap long lines in all commits",
+                kind=lsp.CodeActionKind.RefactorRewrite,
+                edit=lsp.WorkspaceEdit(changes={self.uri: edits}),
             )
         ]
 

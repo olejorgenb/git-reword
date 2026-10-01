@@ -506,6 +506,31 @@ def test_reflow_body_that_looks_like_trailers_but_is_not_last(tmp_path: Path):
     assert a.paragraph_at(6) == (6, 7)
 
 
+def _wrap_actions(a: Analysis, line: int) -> list[lsp.CodeAction]:
+    at = lsp.Range(lsp.Position(line, 0), lsp.Position(line, 0))
+    return [x for x in a.code_actions(at) if x.title == "Wrap long lines in all commits"]
+
+
+def test_wrap_action_covers_all_commits(tmp_path: Path):
+    words = " ".join(["word"] * 20)  # 99 columns
+    url = "https://example.com/" + "x" * 80
+    doc = (
+        f"commit {'a' * 40}\n\n    {'Long subject ' * 7}\n\n    {words}\n    short\n"
+        f"# {words}\n\n"
+        f"commit {'b' * 40}\n\n    S\n\n    {url}\n\t  - {words}\n"
+    )
+    a = Analysis((tmp_path / "x.reword").as_uri(), doc, None)
+    (action,) = _wrap_actions(a, 0)
+    assert _wrap_actions(a, 13) == [action]  # wherever the cursor is
+    assert len(action.edit.changes[a.uri]) == 2
+    fourteen, six = " ".join(["word"] * 14), " ".join(["word"] * 6)
+    wrapped = apply_edits(doc, action.edit.changes[a.uri])
+    assert wrapped == doc.replace(f"    {words}\n", f"    {fourteen}\n    {six}\n").replace(
+        f"\t  - {words}\n", f"\t  - {' '.join(['word'] * 13)}\n\t{' '.join(['word'] * 7)}\n"
+    )
+    assert _wrap_actions(Analysis(a.uri, wrapped, None), 0) == []
+
+
 def test_revert_last_block_keeps_file_shape(edit_file: Path):
     original = edit_file.read_text()
     text = original.replace("    Third commit", "    Third commit, edited")
