@@ -14,6 +14,8 @@ lines in the selection).
 | Indent line(s) | quickfix | selection contains `short-indent` / `unindented-line` diagnostics |
 | Revert `<sha>` to its original message | refactor.rewrite | message differs from the original |
 | Reflow paragraph | refactor.rewrite | cursor is in a body paragraph (see Reflow) |
+| Add file stats to `<sha>` | refactor.rewrite | the block has no stat block and is not a merge (see Adding file stats) |
+| Add file stats to all commits | refactor.rewrite | two or more such blocks in the file |
 | Open `<sha>` in Zed | (command) | client is Zed |
 | Open `<sha>` in browser | (command) | a forge URL can be derived from `origin` |
 
@@ -101,6 +103,32 @@ reflows. Rewrapping changes line breaks the author may have chosen, so it
 stays an explicit action. In Zed, `editor: rewrap` does the same thing when
 `allow_rewrap` is `anywhere` and `preferred_line_length` is 76, but it does
 not know about subjects and trailers; the server action does.
+
+## Adding file stats
+
+Inserts the block `--stat` would have written (see `reword-format.md`,
+Writing), for a file written without the flag. The text is the writer's,
+produced by the same function: one blank line, the summary line, one line
+per file. It goes at the end of the message, before any comment or blank
+lines the block already ends with, which is where the writer puts it.
+
+A block already has a stat block when one of the comment lines after its
+message is summary-shaped: `#`, whitespace, then `<n> file(s) changed`
+or `no files changed`. As with the stat links, the server recognises the
+shape and not where it came from. Merge commits get no action, as with
+the flag. The per-block action covers the block under the cursor. The
+all-commits action covers every block that qualifies, and is offered only
+when there are at least two, since with one it would repeat the
+per-block action.
+
+Editors ask for code actions on cursor moves, so offering these must not
+run git. Whether to offer them is decided from the text and the cached
+commit lookup. The actions carry no edit, only `data` naming the
+document and the full shas to cover, and `codeAction/resolve` computes
+the edit: it analyses the document again from its current text and
+inserts into the named blocks that still exist and still lack a stat
+block. Clients that do not advertise resolve support for `edit` get the
+edit in the `codeAction` response, computed the same way.
 
 ## Folding
 
