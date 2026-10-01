@@ -187,6 +187,41 @@ def test_shas_in_messages_link_and_hover(edit_file: Path, repo: Path):
     assert len(targets) == 2
 
 
+def _sha_hints(a: Analysis) -> list[tuple[str | int | None, str]]:
+    codes = {"sha-rewritten", "sha-not-on-branch"}
+    return [
+        (d.code, a.lines[d.range.start.line][d.range.start.character : d.range.end.character])
+        for d in a.diagnostics()
+        if d.code in codes
+    ]
+
+
+def test_sha_rewritten_hint(edit_file: Path, repo: Path):
+    text, second = _with_sha_lines(edit_file, repo)
+    assert _sha_hints(analyse(edit_file, text)) == []
+
+    edited = text.replace("    First commit", "    First commit, edited")
+    a = analyse(edit_file, edited)
+    assert _sha_hints(a) == [("sha-rewritten", second[:7]), ("sha-rewritten", second)]
+    hint = next(d for d in a.diagnostics() if d.code == "sha-rewritten")
+    assert hint.severity is lsp.DiagnosticSeverity.Hint
+    assert "--no-sha-rewrite" in hint.message
+
+
+def test_sha_not_on_branch_hint(edit_file: Path, repo: Path):
+    git_cmd("checkout", "-q", "-b", "side", cwd=repo)
+    git_cmd("commit", "-q", "--allow-empty", "-m", "Side", cwd=repo)
+    side = git_cmd("rev-parse", "HEAD", cwd=repo)
+    git_cmd("checkout", "-q", "main", cwd=repo)
+    base = git_cmd("rev-parse", "HEAD~3", cwd=repo)
+
+    text = edit_file.read_text().replace(
+        "    Body\n", f"    Body\n    Was {side[:7]}, builds on {base[:7]}.\n"
+    )
+    a = analyse(edit_file, text)
+    assert _sha_hints(a) == [("sha-not-on-branch", side[:7])]
+
+
 def test_stat_paths_link_to_files(edit_file: Path, repo: Path):
     commits = git.get_commits("HEAD~3..HEAD", cwd=repo)
     text = fmt.write(commits, stats=git.get_stats("HEAD~3..HEAD", cwd=repo))

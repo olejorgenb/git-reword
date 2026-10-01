@@ -46,6 +46,7 @@ class Repo:
     url: str | None = None
     root: Path | None = None  # worktree root; None inside a bare repo or .git/
     _commits: dict[str, Commit | None] = field(default_factory=dict, repr=False)
+    _on_head: dict[str, bool] = field(default_factory=dict, repr=False)
 
     @classmethod
     def discover(cls, path: Path) -> Repo | None:
@@ -73,6 +74,16 @@ class Repo:
             except GitError:
                 self._commits[sha] = None
         return self._commits[sha]
+
+    def on_head(self, sha: str) -> bool:
+        """Whether the commit is in HEAD's history. Cached for the life of
+        the server; a failure counts as yes, so it stays quiet."""
+        if sha not in self._on_head:
+            try:
+                self._on_head[sha] = git.is_ancestor(sha, "HEAD", cwd=self.git_dir)
+            except GitError:
+                self._on_head[sha] = True
+        return self._on_head[sha]
 
     def commit_url(self, sha: str) -> str | None:
         return git.commit_url(self.url, sha) if self.url else None
@@ -137,6 +148,13 @@ class Analysis:
                     if (commit := self.repo.commit(m[0])) is not None:
                         out.append((i, m, commit))
         return out
+
+    def reminted_blocks(self) -> set[str]:
+        """Full shas of the blocks an apply re-mints: from the first changed
+        block to the end of the file."""
+        blocks = self.result.blocks
+        first = next((i for i, b in enumerate(blocks) if self.changed(b)), len(blocks))
+        return {self.full_sha(b) for b in blocks[first:]}
 
     # -- lookups -----------------------------------------------------------
 
@@ -378,6 +396,24 @@ class Analysis:
                         source=SOURCE,
                     )
                 )
+        reminted = self.reminted_blocks()
+        for line, m, commit in self.message_shas:
+            if commit.sha in reminted:
+                code = "sha-rewritten"
+                message = "Updated to the new sha on apply (unless --no-sha-rewrite)"
+            elif not self.repo.on_head(commit.sha):
+                code, message = "sha-not-on-branch", "Not on this branch; rewritten or dropped?"
+            else:
+                continue
+            out.append(
+                lsp.Diagnostic(
+                    range=_range(line, m.start(), m.end()),
+                    message=message,
+                    severity=lsp.DiagnosticSeverity.Hint,
+                    code=code,
+                    source=SOURCE,
+                )
+            )
         return out
 
     def symbols(self) -> list[lsp.DocumentSymbol]:
