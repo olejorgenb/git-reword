@@ -595,3 +595,124 @@ p.write_text(text)
     result = run_reword(repo, fix_it, "HEAD~3..HEAD", "--continue")
     assert result.returncode == 0, result.stdout + result.stderr
     assert _authors(repo)[1] == "Ole <ole@example.com>"
+
+
+def _sha_ref_editor(second: str) -> str:
+    """Reword First and add to Third's body references to Second, plus
+    lines that must stay as they are."""
+    lines = (
+        f"    Reverts {second}, see {second[:7]} and\\n"
+        f"    https://gitlab.com/group/repo/-/commit/{second}.\\n"
+        f"    Not shas: defaced, {second[:6]}, x{second[:7]}.\\n"
+    )
+    return f"""\
+import sys, pathlib
+p = pathlib.Path(sys.argv[1])
+text = p.read_text()
+text = text.replace("    First commit\\n", "    First commit, reworded\\n")
+text = text.replace("    Body\\n", "    Body\\n{lines}")
+p.write_text(text)
+"""
+
+
+def test_sha_references_to_rewritten_commits_are_updated(repo: Path):
+    second = git("rev-parse", "HEAD~1", cwd=repo)
+    third = git("rev-parse", "HEAD", cwd=repo)
+    n_before = git("rev-list", "--count", "HEAD", cwd=repo)
+    result = run_reword(repo, _sha_ref_editor(second), "HEAD~3..HEAD")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Detected 2 changed commit(s)" in result.stdout
+    assert git("rev-list", "--count", "HEAD", cwd=repo) == n_before
+
+    new_second = git("rev-parse", "HEAD~1", cwd=repo)
+    assert new_second != second
+    body = messages(repo)[3].split("\n")[3:]
+    reverts, url, not_shas = body
+    assert reverts.startswith(f"Reverts {new_second}, see ")
+    short = reverts.removeprefix(f"Reverts {new_second}, see ").removesuffix(" and")
+    assert len(short) >= 7 and new_second.startswith(short)
+    assert url == f"https://gitlab.com/group/repo/-/commit/{new_second}."
+    assert not_shas == f"Not shas: defaced, {second[:6]}, x{second[:7]}."
+
+    summary, _, after = result.stdout.partition("Apply these changes?")
+    assert "References to rewritten commits, updated on apply:" in summary
+    for token in (second, second[:7], second):
+        assert f"  {third[:8]}  {token}  (Second commit)" in summary
+    assert summary.count("(Second commit)") == 3
+    new_third = git("rev-parse", "HEAD", cwd=repo)
+    assert f"  {new_third[:8]} {second} -> {new_second}" in after
+    assert f"  {new_third[:8]} {second[:7]} -> {short}" in after
+
+
+def test_no_sha_rewrite_leaves_references(repo: Path):
+    second = git("rev-parse", "HEAD~1", cwd=repo)
+    result = run_reword(repo, _sha_ref_editor(second), "HEAD~3..HEAD", "--no-sha-rewrite")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "References to rewritten commits" not in result.stdout
+    assert " -> " not in result.stdout
+    assert f"Reverts {second}, see {second[:7]} and" in messages(repo)[3]
+
+
+def test_sha_reference_after_the_range_is_updated(repo: Path):
+    second = git("rev-parse", "HEAD~1", cwd=repo)
+    message = f"Third commit\n\nThis reverts commit {second}."
+    git("commit", "-q", "--amend", "-m", message, cwd=repo)
+    third = git("rev-parse", "HEAD", cwd=repo)
+    editor = _replace_editor("    First commit\n", "    First commit, reworded\n")
+    result = run_reword(repo, editor, "HEAD~3..HEAD~1")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Detected 1 changed commit(s)" in result.stdout
+    assert f"  {third[:8]}  {second}  (Second commit)" in result.stdout
+    new_second = git("rev-parse", "HEAD~1", cwd=repo)
+    assert messages(repo)[3] == f"Third commit\n\nThis reverts commit {new_second}."
+
+
+def test_sha_reference_to_a_commit_kept_is_left_alone(repo: Path):
+    base = git("rev-parse", "HEAD~3", cwd=repo)
+    editor = f"""\
+import sys, pathlib
+p = pathlib.Path(sys.argv[1])
+text = p.read_text()
+text = text.replace("    First commit\\n", "    First commit, reworded\\n")
+text = text.replace("    Body\\n", "    Body\\n    Builds on {base[:7]}.\\n")
+p.write_text(text)
+"""
+    result = run_reword(repo, editor, "HEAD~3..HEAD")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "References to rewritten commits" not in result.stdout
+    assert messages(repo)[3] == f"Third commit\n\nBody\nBuilds on {base[:7]}."
+    assert git("rev-parse", "HEAD~3", cwd=repo) == base
+
+
+def _fake_plan():
+    from git_reword.apply import Plan
+    from git_reword.git import Commit
+
+    a = Commit("abcdef1" + "1" * 33, "A")
+    b = Commit("abcdef1" + "2" * 33, "B", parents=[a.sha])
+    c = Commit("1234567" + "3" * 33, "C", parents=[b.sha])
+    d = Commit("7654321" + "4" * 33, "D", parents=[c.sha])
+    return Plan(head=d.sha, history=[a, b, c, d]), a, b, c, d
+
+
+def test_references_ambiguous_prefix():
+    from git_reword.apply import references, reminted
+
+    plan, a, b, c, d = _fake_plan()
+    changes = [(a, Edit("A2"))]
+    edits = {c.sha: Edit("C, see abcdef1 and " + b.sha)}
+    assert reminted(plan, changes) == [a, b, c, d]
+    found, ambiguous = references(plan, changes, edits)
+    assert [(r.commit, r.token, r.target) for r in found] == [(c, b.sha, b.sha)]
+    assert [(r.commit, r.token) for r in ambiguous] == [(c, "abcdef1")]
+
+
+def test_references_to_a_later_commit_are_not_references():
+    from git_reword.apply import references
+
+    plan, a, b, c, d = _fake_plan()
+    changes = [(a, Edit("A2"))]
+    edits = {b.sha: Edit(f"B names {d.sha[:7]} and {c.sha}"), d.sha: Edit(f"D names {c.sha[:7]}")}
+    found, ambiguous = references(plan, changes, edits)
+    assert [(r.commit, r.token) for r in found] == [(d, c.sha[:7])]
+    assert ambiguous == []

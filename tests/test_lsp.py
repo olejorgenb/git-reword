@@ -150,6 +150,86 @@ def test_links(edit_file: Path):
     )
 
 
+def _with_sha_lines(edit_file: Path, repo: Path) -> tuple[str, str]:
+    """The edit file with Third's body naming Second by its 7-digit and
+    full sha, plus a hex word and a comment line naming it; and Second's sha."""
+    second = git_cmd("rev-parse", "HEAD~1", cwd=repo)
+    text = edit_file.read_text().replace(
+        "    Body\n",
+        f"    Body\n# {second}\n    See {second[:7]} and {second}, defaced.\n",
+    )
+    return text, second
+
+
+def test_shas_in_messages_link_and_hover(edit_file: Path, repo: Path):
+    text, second = _with_sha_lines(edit_file, repo)
+    a = analyse(edit_file, text)
+    line = a.lines.index(f"    See {second[:7]} and {second}, defaced.")
+    links = [x for x in a.links() if x.range.start.line == line]
+    assert [(x.range.start.character, x.range.end.character) for x in links] == [
+        (8, 15),
+        (20, 60),
+    ]
+    assert {x.target for x in links} == {f"https://gitlab.com/group/repo/-/commit/{second}"}
+    assert not [x for x in a.links() if x.range.start.line == line - 1], "comment line"
+
+    for character in (8, 14, 20, 59):
+        hover = a.hover(lsp.Position(line, character))
+        assert hover is not None
+        assert "Second commit" in hover.contents.value
+        assert "Author: Test <test@example.com>" in hover.contents.value
+    assert a.hover(lsp.Position(line, 63)) is None  # defaced
+    assert a.hover(lsp.Position(line - 1, 4)) is None  # the comment line
+
+    z = Analysis(a.uri, a.text, a.repo, client="Zed")
+    targets = [x.target for x in z.links() if x.range.start.line == line]
+    assert all(t.startswith(f"zed://git/commit/{second}?repo=") for t in targets)
+    assert len(targets) == 2
+
+
+def test_shas_in_messages_semantic_tokens(edit_file: Path, repo: Path):
+    text, second = _with_sha_lines(edit_file, repo)
+    a = analyse(edit_file, text)
+    line = a.lines.index(f"    See {second[:7]} and {second}, defaced.")
+    assert a.semantic_tokens().data == [line, 8, 7, 0, 1, 0, 12, 40, 0, 1]
+    assert analyse(edit_file).semantic_tokens().data == []
+
+
+def _sha_hints(a: Analysis) -> list[tuple[str | int | None, str]]:
+    codes = {"sha-rewritten", "sha-not-on-branch"}
+    return [
+        (d.code, a.lines[d.range.start.line][d.range.start.character : d.range.end.character])
+        for d in a.diagnostics()
+        if d.code in codes
+    ]
+
+
+def test_sha_rewritten_hint(edit_file: Path, repo: Path):
+    text, second = _with_sha_lines(edit_file, repo)
+    assert _sha_hints(analyse(edit_file, text)) == []
+
+    edited = text.replace("    First commit", "    First commit, edited")
+    a = analyse(edit_file, edited)
+    assert _sha_hints(a) == [("sha-rewritten", second[:7]), ("sha-rewritten", second)]
+    hint = next(d for d in a.diagnostics() if d.code == "sha-rewritten")
+    assert hint.severity is lsp.DiagnosticSeverity.Hint
+    assert "--no-sha-rewrite" in hint.message
+
+
+def test_sha_not_on_branch_hint(edit_file: Path, repo: Path):
+    git_cmd("checkout", "-q", "-b", "side", cwd=repo)
+    git_cmd("commit", "-q", "--allow-empty", "-m", "Side", cwd=repo)
+    side = git_cmd("rev-parse", "HEAD", cwd=repo)
+    git_cmd("checkout", "-q", "main", cwd=repo)
+    base = git_cmd("rev-parse", "HEAD~3", cwd=repo)
+
+    text = edit_file.read_text().replace(
+        "    Body\n", f"    Body\n    Was {side[:7]}, builds on {base[:7]}.\n"
+    )
+    a = analyse(edit_file, text)
+    assert _sha_hints(a) == [("sha-not-on-branch", side[:7])]
+
+
 def test_stat_paths_link_to_files(edit_file: Path, repo: Path):
     commits = git.get_commits("HEAD~3..HEAD", cwd=repo)
     text = fmt.write(commits, stats=git.get_stats("HEAD~3..HEAD", cwd=repo))
@@ -631,6 +711,8 @@ def test_stdio_server(edit_file: Path, repo: Path, tmp_path_factory):
         assert caps["hoverProvider"] and caps["documentSymbolProvider"]
         assert caps["codeActionProvider"] and caps["documentLinkProvider"]
         assert caps["documentFormattingProvider"]
+        legend = caps["semanticTokensProvider"]["legend"]
+        assert legend == {"tokenTypes": ["variable"], "tokenModifiers": ["constant"]}
         assert OPEN_COMMIT_COMMAND in caps["executeCommandProvider"]["commands"]
         c.send("initialized", {}, request=False)
 

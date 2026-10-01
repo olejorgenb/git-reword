@@ -87,7 +87,7 @@ lookup. Only message lines are scanned; comment lines are not.
 
 | The token | Gets |
 |---|---|
-| names a commit | a document link with the same target and tooltip as a `commit` line (Zed's commit view in Zed, otherwise the forge), and a hover: short sha, subject, author and date |
+| names a commit | a document link with the same target and tooltip as a `commit` line (Zed's commit view in Zed, otherwise the forge), a hover: short sha, subject, author and date; and a semantic token, so it is coloured like the sha on a `commit` line |
 | names the commit of a block that this reword re-mints | also a hint, `sha-rewritten`: "updated to the new sha on apply" |
 | names a commit that is not in `HEAD`'s history | also a hint, `sha-not-on-branch`: "not on this branch; rewritten or dropped?" |
 | names nothing | nothing; hex words and foreign shas stay quiet |
@@ -97,6 +97,15 @@ changed. Blocks are in history order and the set of commits is fixed (see
 `reword-format.md`, Reading back), and a commit before the range never
 changes. The hint ignores `--no-sha-rewrite`, which the server never
 sees; its message says so.
+
+The tree-sitter grammar can't colour these: a message line is one
+`text` node, and a hex word looks the same as a sha there. So the colour
+comes from the server, as a semantic token of type `variable` with the
+modifier `constant`, which editors style as a constant, the capture the
+grammar uses for the sha on a `commit` line. Only tokens that name a
+commit get one. In Zed semantic tokens are off by default; the language
+needs `"semantic_tokens": "combined"`, which keeps tree-sitter's
+highlighting and adds the tokens on top.
 
 Checking `HEAD`'s history costs one `git merge-base --is-ancestor` per
 distinct sha, cached with the commit lookup for the life of the server.

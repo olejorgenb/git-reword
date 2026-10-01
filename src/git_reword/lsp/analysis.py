@@ -32,6 +32,10 @@ _STAT_LINE_RE = re.compile(r"^#\s+[MADTRC]  (?:.* -> )?(?P<path>.+)$")
 # A `--stat` summary line: `#   2 files changed, ...` or `#   no files changed`.
 _STAT_SUMMARY_RE = re.compile(r"^#\s+(?:\d+ files? changed|no files changed)")
 
+# Shas in messages are coloured by the server (the grammar sees one `text`
+# node per line): a constant variable, styled like the grammar's @constant.
+SEMANTIC_LEGEND = lsp.SemanticTokensLegend(token_types=["variable"], token_modifiers=["constant"])
+
 _SEVERITY = {
     fmt.Severity.ERROR: lsp.DiagnosticSeverity.Error,
     fmt.Severity.WARNING: lsp.DiagnosticSeverity.Warning,
@@ -46,6 +50,7 @@ class Repo:
     url: str | None = None
     root: Path | None = None  # worktree root; None inside a bare repo or .git/
     _commits: dict[str, Commit | None] = field(default_factory=dict, repr=False)
+    _on_head: dict[str, bool] = field(default_factory=dict, repr=False)
 
     @classmethod
     def discover(cls, path: Path) -> Repo | None:
@@ -73,6 +78,16 @@ class Repo:
             except GitError:
                 self._commits[sha] = None
         return self._commits[sha]
+
+    def on_head(self, sha: str) -> bool:
+        """Whether the commit is in HEAD's history. Cached for the life of
+        the server; a failure counts as yes, so it stays quiet."""
+        if sha not in self._on_head:
+            try:
+                self._on_head[sha] = git.is_ancestor(sha, "HEAD", cwd=self.git_dir)
+            except GitError:
+                self._on_head[sha] = True
+        return self._on_head[sha]
 
     def commit_url(self, sha: str) -> str | None:
         return git.commit_url(self.url, sha) if self.url else None
@@ -120,6 +135,30 @@ class Analysis:
     @cached_property
     def result(self) -> fmt.ParseResult:
         return fmt.parse(self.text)
+
+    @cached_property
+    def message_shas(self) -> list[tuple[int, re.Match[str], Commit]]:
+        """(line, match, commit) for every token in a message line that
+        names a commit. Comment lines (`#` at column 0) are not scanned."""
+        if self.repo is None:
+            return []
+        out = []
+        for block in self.result.blocks:
+            start, end = block.message_lines
+            for i in range(start, end):
+                if self.lines[i].startswith("#"):
+                    continue
+                for m in fmt.SHA_REF_RE.finditer(self.lines[i]):
+                    if (commit := self.repo.commit(m[0])) is not None:
+                        out.append((i, m, commit))
+        return out
+
+    def reminted_blocks(self) -> set[str]:
+        """Full shas of the blocks an apply re-mints: from the first changed
+        block to the end of the file."""
+        blocks = self.result.blocks
+        first = next((i for i, b in enumerate(blocks) if self.changed(b)), len(blocks))
+        return {self.full_sha(b) for b in blocks[first:]}
 
     # -- lookups -----------------------------------------------------------
 
@@ -361,6 +400,24 @@ class Analysis:
                         source=SOURCE,
                     )
                 )
+        reminted = self.reminted_blocks()
+        for line, m, commit in self.message_shas:
+            if commit.sha in reminted:
+                code = "sha-rewritten"
+                message = "Updated to the new sha on apply (unless --no-sha-rewrite)"
+            elif not self.repo.on_head(commit.sha):
+                code, message = "sha-not-on-branch", "Not on this branch; rewritten or dropped?"
+            else:
+                continue
+            out.append(
+                lsp.Diagnostic(
+                    range=_range(line, m.start(), m.end()),
+                    message=message,
+                    severity=lsp.DiagnosticSeverity.Hint,
+                    code=code,
+                    source=SOURCE,
+                )
+            )
         return out
 
     def symbols(self) -> list[lsp.DocumentSymbol]:
@@ -384,6 +441,16 @@ class Analysis:
         return out
 
     def hover(self, position: lsp.Position) -> lsp.Hover | None:
+        for line, m, commit in self.message_shas:
+            if line == position.line and m.start() <= position.character < m.end():
+                value = (
+                    f"`{commit.short or commit.sha[:8]}` {commit.subject}  \n"
+                    f"Author: {commit.author} · {commit.author_date}"
+                )
+                return lsp.Hover(
+                    contents=lsp.MarkupContent(lsp.MarkupKind.Markdown, value),
+                    range=_range(line, m.start(), m.end()),
+                )
         block = self.block_at(position.line)
         if block is None or position.line != block.line:
             return None
@@ -404,6 +471,17 @@ class Analysis:
             contents=lsp.MarkupContent(lsp.MarkupKind.Markdown, "\n\n".join(parts)),
             range=self.sha_range(block),
         )
+
+    def semantic_tokens(self) -> lsp.SemanticTokens:
+        """One token per sha in a message that names a commit, encoded
+        relative to the previous one as LSP wants."""
+        data: list[int] = []
+        prev_line = prev_start = 0
+        for line, m, _ in self.message_shas:
+            start = m.start() - prev_start if line == prev_line else m.start()
+            data += [line - prev_line, start, m.end() - m.start(), 0, 1]
+            prev_line, prev_start = line, m.start()
+        return lsp.SemanticTokens(data=data)
 
     @property
     def is_zed(self) -> bool:
@@ -432,6 +510,11 @@ class Analysis:
             if fmt.SHA_RE.match(b.sha) and (target := self.link_target(self.full_sha(b))):
                 url, tooltip = target
                 out.append(lsp.DocumentLink(range=self.sha_range(b), target=url, tooltip=tooltip))
+        for line, m, commit in self.message_shas:
+            if target := self.link_target(commit.sha):
+                url, tooltip = target
+                link_range = _range(line, m.start(), m.end())
+                out.append(lsp.DocumentLink(range=link_range, target=url, tooltip=tooltip))
         root = self.repo.root if self.repo else None
         if root is None:
             return out

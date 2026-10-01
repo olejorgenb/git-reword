@@ -185,3 +185,11 @@ def test_update_ref_follows_head_and_checks_old_value(repo: Path) -> None:
     assert "test" in git_cmd("reflog", "-1", "main", cwd=repo)
     with pytest.raises(git.GitError):
         git.update_ref("HEAD", old, old, message="stale", cwd=repo)
+
+
+def test_short_is_a_prefix_at_least_as_long_as_asked(repo: Path) -> None:
+    sha = git_cmd("rev-parse", "HEAD", cwd=repo)
+    for length in (7, 12, 40):
+        abbrev = git.short(sha, length, cwd=repo)
+        assert len(abbrev) >= length
+        assert sha.startswith(abbrev)

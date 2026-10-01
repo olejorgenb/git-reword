@@ -94,6 +94,20 @@ def is_ignored(path: Path | str, cwd: Path | str | None = None) -> bool:
     raise GitError(result.stderr.strip() or f"git check-ignore exited {result.returncode}")
 
 
+def is_ancestor(sha: str, rev: str, cwd: Path | str | None = None) -> bool:
+    """Whether `sha` is in `rev`'s history. Raises GitError when git can't
+    tell (an unknown sha, no such rev)."""
+    result = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", "--end-of-options", sha, rev],
+        capture_output=True,
+        text=True,
+        cwd=cwd,
+    )
+    if result.returncode in (0, 1):
+        return result.returncode == 0
+    raise GitError(result.stderr.strip() or f"git merge-base exited {result.returncode}")
+
+
 # scheme://[user@]host[:port]/path
 _URL_REMOTE_RE = re.compile(
     r"^(?:ssh|git|https?)://(?:[^@/]+@)?(?P<host>[^:/]+)(?::\d+)?/(?P<path>.+)$"
@@ -246,6 +260,12 @@ def commit_tree(
         env.update(_ident_env("committer", committer, committer_date))
     args = [arg for parent in parents for arg in ("-p", parent)]
     return run("commit-tree", tree, *args, cwd=cwd, env=env, input=message + "\n")
+
+
+def short(sha: str, length: int, cwd: Path | str | None = None) -> str:
+    """git's abbreviation of `sha`: at least `length` characters, more when
+    that prefix is ambiguous in the repository."""
+    return run("rev-parse", f"--short={length}", "--end-of-options", sha, cwd=cwd)
 
 
 def update_ref(

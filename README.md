@@ -52,6 +52,8 @@ Flags:
   and `--continue` know about it
 - `--stat` adds the files each commit touched as comment lines after the message
 - `--no-abbrev` writes full shas instead of git's abbreviations (`--abbrev`, the default)
+- `--no-sha-rewrite` leaves shas of rewritten commits named in messages
+  (`This reverts commit …`) as written; by default they are updated
 - `--continue` reopens the file from an aborted run
 - `--force` discards any previous aborted run
  
@@ -78,6 +80,9 @@ anywhere inside a worktree. It provides:
   the commit in the forge (from `origin`), and in Zed open it in Zed's
   commit view
 - document links on shas, and formatting that normalises indentation
+- shas in messages that name a commit: a link, a hover, hints when the
+  commit is rewritten by this reword or not on the branch, and a colour
+  (Zed needs `"semantic_tokens": "combined"` for the language)
 - folding ranges that keep the subject visible: fold the body under a
   subject, or a whole block down to its `commit` line with the subject as
   placeholder; runs of comment lines fold to their first line, so a

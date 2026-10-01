@@ -9,7 +9,13 @@ from pathlib import Path
 from lsprotocol import types as lsp
 from pygls.lsp.server import LanguageServer
 
-from git_reword.lsp.analysis import ADD_STATS, OPEN_COMMIT_COMMAND, Analysis, Repo
+from git_reword.lsp.analysis import (
+    ADD_STATS,
+    OPEN_COMMIT_COMMAND,
+    SEMANTIC_LEGEND,
+    Analysis,
+    Repo,
+)
 from git_reword.lsp.open import open_url
 
 log = logging.getLogger("git-reword-lsp")
@@ -123,6 +129,14 @@ def document_link(ls: RewordServer, params: lsp.DocumentLinkParams) -> list[lsp.
     links = ls.analysis(params.text_document.uri).links()
     log.info("documentLink: %d links", len(links))
     return links
+
+
+@server.feature(
+    lsp.TEXT_DOCUMENT_SEMANTIC_TOKENS_FULL,
+    lsp.SemanticTokensRegistrationOptions(legend=SEMANTIC_LEGEND, full=True),
+)
+def semantic_tokens(ls: RewordServer, params: lsp.SemanticTokensParams) -> lsp.SemanticTokens:
+    return ls.analysis(params.text_document.uri).semantic_tokens()
 
 
 @server.feature(lsp.TEXT_DOCUMENT_FOLDING_RANGE)
