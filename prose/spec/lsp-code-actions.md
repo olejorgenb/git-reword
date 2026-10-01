@@ -7,19 +7,18 @@ beyond diagnostics and formatting (code actions, links, folding), and how
 ## Actions
 
 Offered by `textDocument/codeAction` for the block under the cursor (or the
-lines in the selection).
+lines in the selection). "Add file stats to all commits" covers the whole
+file and is offered from any line.
 
 | Title | Kind | When |
 |---|---|---|
 | Indent line(s) | quickfix | selection contains `short-indent` / `unindented-line` diagnostics |
-| Revert `<sha>` to its original message | refactor.rewrite | message differs from the original |
+| Revert `<sha>` to its original message / author / committer | refactor.rewrite | the block is changed: its message differs, or with `edit-info` an info value does; the title names what changed |
 | Reflow paragraph | refactor.rewrite | cursor is in a body paragraph (see Reflow) |
 | Add file stats to `<sha>` | refactor.rewrite | the block has no stat block and is not a merge (see Adding file stats) |
 | Add file stats to all commits | refactor.rewrite | two or more such blocks in the file |
 | Open `<sha>` in Zed | (command) | client is Zed |
 | Open `<sha>` in browser | (command) | a forge URL can be derived from `origin` |
-
-The first two exist today. The last one exists but does not work in Zed.
 
 ## Opening a commit
 
@@ -45,8 +44,8 @@ inside a worktree. The action is not offered when there is no root (a
 ### Mechanism
 
 The server's `git-reword.openCommit` command takes one URL argument. Zed
-does not implement `window/showDocument`, so the current implementation is
-a silent no-op there. The command therefore opens the URL itself:
+does not implement `window/showDocument`, where asking for it would be a
+silent no-op, so the command opens the URL itself when it has to:
 
 1. If the client advertised `window.showDocument` support at initialize,
    use `window/showDocument` with `external: true`. This is what Neovim and
@@ -164,5 +163,5 @@ language; otherwise it folds by indentation and never asks.
 
 ## Not in scope
 
-Moving commits, diffing against the original, and folding are separate
-ideas under `prose/idea/`.
+Moving commits and showing the original message beside the edited one
+are separate ideas under `prose/idea/`.

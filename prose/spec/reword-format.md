@@ -120,7 +120,7 @@ edits to the message leave it alone.
 Flags:
 
 - `--commit-link`: emit a forge URL as a comment under each `commit` line. Off
-  by default once the language server provides links.
+  by default, since the language server links each sha.
 - `--stat`: emit the files each commit touched as comments after the
   message, separated from it by one blank line, where `git log --stat`
   puts them. Context only: the lines are comments, so reading back ignores
@@ -248,7 +248,8 @@ up from the file looking for a repo and degrades gracefully if none is found.
   buffer, so message highlighting lives in this grammar.
 - Language server: diagnostics for every error above plus advisory ones
   (subject length, non-blank second line), hover with the original message,
-  code actions (revert to original, open in forge, indent selection), document
+  code actions (see `lsp-code-actions.md`: indent, revert to original,
+  reflow, add file stats, open in Zed or the forge), links, document
   symbols, formatting (fix indentation), folding ranges (per block, per
   body, and per run of comment lines, which is what makes a `--stat` block
   collapse to its summary line).
