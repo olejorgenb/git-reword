@@ -6,7 +6,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import parse_qs, quote
 
 import pytest
 from lsprotocol import types as lsp
@@ -43,10 +43,11 @@ def apply_edits(text: str, edits: list[lsp.TextEdit]) -> str:
     return text
 
 
-def not_stats(actions: list[lsp.CodeAction]) -> list[lsp.CodeAction]:
+def core_actions(actions: list[lsp.CodeAction]) -> list[lsp.CodeAction]:
     """Leave out the file stats actions, which every block of a file
-    written without --stat gets."""
-    return [x for x in actions if not x.title.startswith("Add file stats")]
+    written without --stat gets, and the agent actions, which every known
+    commit gets in Zed."""
+    return [x for x in actions if not x.title.startswith(("Add file stats", "Discuss"))]
 
 
 def test_repo_discovery(edit_file: Path, repo: Path):
@@ -227,7 +228,7 @@ def test_revert_and_open_actions(edit_file: Path):
     text = original.replace("    Second commit", "    Second commit, edited")
     a = analyse(edit_file, text)
     block = a.result.blocks[1]
-    actions = not_stats(
+    actions = core_actions(
         a.code_actions(lsp.Range(lsp.Position(block.line + 2, 0), lsp.Position(block.line + 2, 0)))
     )
     titles = [x.title for x in actions]
@@ -244,7 +245,7 @@ def test_revert_and_open_actions(edit_file: Path):
 
     # Unchanged block: only the open action.
     other = a.result.blocks[0]
-    actions = not_stats(
+    actions = core_actions(
         a.code_actions(lsp.Range(lsp.Position(other.line, 0), lsp.Position(other.line, 0)))
     )
     assert [x.title for x in actions] == [f"Open {other.sha[:8]} in browser"]
@@ -254,11 +255,13 @@ def test_open_in_zed_only_for_zed(edit_file: Path, repo: Path):
     a = analyse(edit_file)
     block = a.result.blocks[0]
     at = lsp.Range(lsp.Position(block.line, 0), lsp.Position(block.line, 0))
-    assert [x.title for x in not_stats(a.code_actions(at))] == [f"Open {block.sha[:8]} in browser"]
+    assert [x.title for x in core_actions(a.code_actions(at))] == [
+        f"Open {block.sha[:8]} in browser"
+    ]
 
     # The name carries the release channel: "Zed Preview", "Zed Dev", ...
     a = Analysis(a.uri, a.text, a.repo, client="Zed Preview")
-    actions = not_stats(a.code_actions(at))
+    actions = core_actions(a.code_actions(at))
     assert [x.title for x in actions] == [
         f"Open {block.sha[:8]} in Zed",
         f"Open {block.sha[:8]} in browser",
@@ -271,7 +274,82 @@ def test_open_in_zed_only_for_zed(edit_file: Path, repo: Path):
     old = repo / ".git" / "REWORD_EDITMSG"
     old.write_text(a.text)
     a = Analysis(old.as_uri(), a.text, Repo.discover(old), client="Zed")
-    assert [x.title for x in not_stats(a.code_actions(at))] == [f"Open {block.sha[:8]} in browser"]
+    assert [x.title for x in core_actions(a.code_actions(at))] == [
+        f"Open {block.sha[:8]} in browser"
+    ]
+
+
+def agent_actions(a: Analysis, line: int) -> dict[str, str]:
+    """title -> prompt, for the agent actions at `line`."""
+    actions = a.code_actions(lsp.Range(lsp.Position(line, 0), lsp.Position(line, 0)))
+    prompts = {}
+    for x in actions:
+        if x.title.startswith("Discuss"):
+            assert x.command.command == OPEN_COMMIT_COMMAND
+            [url] = x.command.arguments
+            scheme, query = url.split("?", 1)
+            assert scheme == "zed://agent"
+            assert list(parse_qs(query)) == ["prompt"]
+            prompts[x.title] = parse_qs(query)["prompt"][0]
+    return prompts
+
+
+def test_agent_actions(edit_file: Path, repo: Path):
+    a = analyse(edit_file)
+    block = a.result.blocks[1]
+    assert agent_actions(a, block.line) == {}, "only offered in Zed"
+
+    a = Analysis(a.uri, a.text, a.repo, client="Zed")
+    prompts = agent_actions(a, block.line + 2)
+    assert list(prompts) == [
+        f"Discuss {block.sha[:8]} with agent",
+        "Discuss all messages with agent",
+    ]
+    one, every = prompts.values()
+    assert one == a.agent_prompt(block) and every == a.agent_prompt()
+
+    assert f"{a.full_sha(block)} (the block at line {block.line + 1}) in `REWORD_EDITMSG`" in one
+    assert f"repository at `{repo}`" in one and str(edit_file) not in one
+    assert f"{block.sha} Second commit" in one
+    assert a.result.blocks[0].sha not in one, "only the focused commit is listed"
+    assert all(f"{b.sha} " in every for b in a.result.blocks)
+    for prompt in (one, every):
+        assert fmt.AGENT_GUIDE.rstrip("\n") in prompt
+        assert "- Change only message lines.\n" in prompt
+        assert "Do not run `git reword`" in prompt
+        assert "\n\n\n" not in prompt, "Zed would collapse it"
+
+    # In the header, outside any block: only the file-wide action.
+    assert list(agent_actions(a, 0)) == ["Discuss all messages with agent"]
+
+
+def test_agent_actions_need_known_commits_and_a_root(edit_file: Path, repo: Path):
+    text = edit_file.read_text()
+    first, second, _ = fmt.parse(text).blocks
+    # One unknown sha: no action for that block, and still two known ones.
+    unknown = text.replace(f"commit {first.sha}", "commit deadbeef")
+    a = Analysis(edit_file.as_uri(), unknown, Repo.discover(edit_file), client="Zed")
+    prompt = a.agent_prompt()
+    assert prompt is not None and "deadbeef" not in prompt
+    assert agent_actions(a, first.line) == {"Discuss all messages with agent": prompt}
+    # Only one known commit left: the file-wide action would repeat the per-block one.
+    unknown = unknown.replace(f"commit {second.sha}", "commit deadbee0")
+    a = Analysis(edit_file.as_uri(), unknown, a.repo, client="Zed")
+    assert list(agent_actions(a, a.result.blocks[2].line)) == [
+        f"Discuss {a.result.blocks[2].sha[:8]} with agent"
+    ]
+
+    # No worktree root (old edit file under .git/): no agent actions.
+    old = repo / ".git" / "REWORD_EDITMSG"
+    old.write_text(text)
+    a = Analysis(old.as_uri(), text, Repo.discover(old), client="Zed")
+    assert agent_actions(a, first.line) == {}
+
+
+def test_agent_prompt_in_edit_info_mode(info_file: Path):
+    a = Analysis(info_file.as_uri(), info_file.read_text(), Repo.discover(info_file), client="Zed")
+    prompt = a.agent_prompt()
+    assert prompt is not None and "- Change only message lines and info lines.\n" in prompt
 
 
 def test_opener_choice():
