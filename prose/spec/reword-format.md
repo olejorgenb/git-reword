@@ -249,7 +249,8 @@ up from the file looking for a repo and degrades gracefully if none is found.
 - Language server: diagnostics for every error above plus advisory ones
   (subject length, non-blank second line), hover with the original message,
   code actions (see `lsp-code-actions.md`: indent, revert to original,
-  reflow, add file stats, open in Zed or the forge), links, document
+  reflow, add file stats, open in Zed or the forge, discuss with Zed's
+  agent), links, document
   symbols, formatting (fix indentation), folding ranges (per block, per
   body, and per run of comment lines, which is what makes a `--stat` block
   collapse to its summary line).

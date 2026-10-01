@@ -19,6 +19,8 @@ file and is offered from any line.
 | Add file stats to all commits | refactor.rewrite | two or more such blocks in the file |
 | Open `<sha>` in Zed | (command) | client is Zed |
 | Open `<sha>` in browser | (command) | a forge URL can be derived from `origin` |
+| Discuss `<sha>` with agent | (command) | client is Zed and the block is a known commit (see Discussing with Zed's agent) |
+| Discuss all messages with agent | (command) | client is Zed and two or more blocks are known commits |
 
 ## Opening a commit
 
@@ -128,6 +130,42 @@ the edit: it analyses the document again from its current text and
 inserts into the named blocks that still exist and still lack a stat
 block. Clients that do not advertise resolve support for `edit` get the
 edit in the `codeAction` response, computed the same way.
+
+## Discussing with Zed's agent
+
+Opens Zed's agent panel on a new thread with a prompt already written, so
+the user can work on a message, or on the whole series, together with
+the agent. The action runs the open command (see Mechanism) on
+`zed://agent?prompt=<text>`. Zed fills the prompt in but never sends
+it: the user reads it and presses enter, and Zed marks it as coming from
+outside. Zed also removes control characters and turns runs of three or
+more newlines into two, so the prompt does not rely on either. The thread
+uses whichever agent the panel is set to.
+
+The agent edits the file itself. Its edits go through Zed's buffers, so
+they land in the open file even when it has unsaved changes, and Zed
+shows them for the user to accept or reject. Nothing comes back through
+the server. The edit file sits at the worktree root (see `reword-format.md`,
+File location), within the agent's reach; for that reason the prompt
+names the file by its path relative to the root.
+
+The prompt is plain text built from the document and the cached commit
+lookup, so offering the actions runs no git. It holds:
+
+- the task: improve the message of one commit (sha and line), or the
+  messages of the file as a series, discussing before editing;
+- the worktree root, the file, and the commits as `<sha> <subject>`
+  lines. Diffs are not included: the agent runs `git show` when it needs
+  one, and `git log` for the house style. Past 100 commits the list ends
+  with a count, since the agent can read the file;
+- a short guide to the file's syntax, kept next to the file header in
+  the writer so the two change together;
+- the limits: only message lines change, plus info lines in `edit-info`
+  mode; `commit` lines stay as they are, and commits are not split,
+  squashed, reordered, added or dropped; the agent does not run
+  `git reword` or commit, since the user finishes the reword;
+- a request to fix diagnostics in the lines it touched, if it can see
+  them. Zed's built-in agent can; other agents in the panel may not.
 
 ## Folding
 

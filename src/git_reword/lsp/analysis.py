@@ -11,9 +11,10 @@ import re
 from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 from lsprotocol import types as lsp
+from pygls.uris import to_fs_path
 
 from git_reword import format as fmt
 from git_reword import git
@@ -25,6 +26,7 @@ OPEN_COMMIT_COMMAND = "git-reword.openCommit"
 ADD_STATS = "add-stats"  # `data["action"]` of the file stats actions, for resolve
 INDENT_FIX_CODES = frozenset({"short-indent", "unindented-line"})
 SUBJECT_SEP = "\u00b7 "  # before the subject in a folded block
+AGENT_COMMITS_MAX = 100  # commits listed in an agent prompt; the agent can read the rest
 # A `--stat` file line: `#   M  path`, or `#   R  old -> new` for renames and copies.
 _STAT_LINE_RE = re.compile(r"^#\s+[MADTRC]  (?:.* -> )?(?P<path>.+)$")
 # A `--stat` summary line: `#   2 files changed, ...` or `#   no files changed`.
@@ -90,12 +92,17 @@ def _indent(message: str) -> str:
     return "".join(f"    {line}\n" if line else "\n" for line in message.split("\n"))
 
 
-def _open_action(title: str, url: str) -> lsp.CodeAction:
+def _open_action(title: str, url: str, what: str = "commit") -> lsp.CodeAction:
     return lsp.CodeAction(
         title=title,
         kind=lsp.CodeActionKind.Empty,
-        command=lsp.Command(title="Open commit", command=OPEN_COMMIT_COMMAND, arguments=[url]),
+        command=lsp.Command(title=f"Open {what}", command=OPEN_COMMIT_COMMAND, arguments=[url]),
     )
+
+
+def agent_url(prompt: str) -> str:
+    """zed://agent?prompt=<text>: Zed's agent panel, prompt filled in but not sent."""
+    return "zed://agent?" + urlencode({"prompt": prompt}, quote_via=quote)
 
 
 @dataclass
@@ -124,6 +131,10 @@ class Analysis:
 
     def original(self, block: fmt.Block) -> Commit | None:
         return self.repo.commit(block.sha) if self.repo else None
+
+    def known_blocks(self) -> list[fmt.Block]:
+        """Blocks whose sha names a commit."""
+        return [b for b in self.result.blocks if self.original(b) is not None]
 
     def edit(self, block: fmt.Block) -> tuple[Edit, list[fmt.Diagnostic]] | None:
         """The block's edit and its info-line diagnostics, None without an
@@ -214,6 +225,53 @@ class Analysis:
         return self.stat_action(
             "Add file stats to all commits", [self.full_sha(b) for b in blocks], lazy=lazy
         )
+
+    def agent_prompt(self, focus: fmt.Block | None = None) -> str | None:
+        """The prompt for Zed's agent: about `focus`, or about every known
+        commit as a series. None without a worktree root or known commits."""
+        if self.repo is None or self.repo.root is None:
+            return None
+        listed = [focus] if focus is not None else self.known_blocks()
+        if not listed or any(self.original(b) is None for b in listed):
+            return None
+        root = self.repo.root
+        path = Path(to_fs_path(self.uri) or self.uri)
+        if path.is_relative_to(root):
+            path = path.relative_to(root)
+
+        if focus is not None:
+            task = (
+                f"Help me improve the commit message of {self.full_sha(focus)} "
+                f"(the block at line {focus.line + 1}) in `{path}`."
+            )
+        else:
+            task = (
+                f"Help me improve the commit messages in `{path}`, as a series: "
+                "consistent wording, and each message explaining its own commit."
+            )
+        commits = [f"{b.sha} {b.message.partition('\n')[0]}" for b in listed[:AGENT_COMMITS_MAX]]
+        if len(listed) > AGENT_COMMITS_MAX:
+            commits.append(f"... and {len(listed) - AGENT_COMMITS_MAX} more, see the file")
+        heading = "Commit:" if focus is not None else "Commits, in file order:"
+        editable = "message lines and info lines" if self.result.edit_info else "message lines"
+        sections = [
+            task,
+            f"`{path}` is a git-reword edit file in the repository at `{root}`. "
+            "The user applies it with `git reword` when we are done, which rewords "
+            "the commits.",
+            "\n".join([heading, *commits]),
+            "Run `git show --stat --patch <sha>` to see a commit's change, and "
+            "`git log` to see how this repository writes messages.",
+            "Let's discuss first. Once we agree, edit the file directly.",
+            fmt.AGENT_GUIDE.rstrip("\n"),
+            "Limits:\n"
+            f"- Change only {editable}.\n"
+            "- Leave `commit` lines as they are. Commits cannot be split, squashed, "
+            "reordered, added or dropped here.\n"
+            "- Do not run `git reword`, commit, or change the repository otherwise.",
+            "If you can see diagnostics for the file, fix the ones in lines you changed.",
+        ]
+        return "\n\n".join(sections)
 
     def paragraph_at(self, line: int) -> tuple[int, int] | None:
         """[start, end) of the body paragraph containing `line`: a run of
@@ -449,6 +507,7 @@ class Analysis:
             *self._reflow_actions(line),
             *self._stat_actions(block, lazy=lazy),
             *self._open_actions(block),
+            *self._agent_actions(block),
         ]
 
     def _indent_actions(self, range_: lsp.Range) -> list[lsp.CodeAction]:
@@ -554,6 +613,18 @@ class Analysis:
             actions.append(_open_action(f"Open {block.sha[:8]} in Zed", zed_url))
         if url := self.repo.commit_url(sha):
             actions.append(_open_action(f"Open {block.sha[:8]} in browser", url))
+        return actions
+
+    def _agent_actions(self, block: fmt.Block | None) -> list[lsp.CodeAction]:
+        if not self.is_zed:
+            return []
+        actions = []
+        if block is not None and (prompt := self.agent_prompt(block)):
+            title = f"Discuss {block.sha[:8]} with agent"
+            actions.append(_open_action(title, agent_url(prompt), "agent"))
+        if len(self.known_blocks()) > 1 and (prompt := self.agent_prompt()):
+            title = "Discuss all messages with agent"
+            actions.append(_open_action(title, agent_url(prompt), "agent"))
         return actions
 
     def formatted(self) -> str:
