@@ -63,7 +63,7 @@ class Repo:
 
     def commit(self, sha: str) -> Commit | None:
         # The parser rejects such tokens anyway; also keeps option-shaped ones away from git.
-        if not fmt._SHA_RE.match(sha):
+        if not fmt.SHA_RE.match(sha):
             return None
         if sha not in self._commits:
             try:
@@ -217,7 +217,7 @@ class Analysis:
         msg_start, msg_end = block.message_lines
 
         def content(i: int) -> str | None:
-            c = fmt._strip_indent(self.lines[i])
+            c = fmt.strip_indent(self.lines[i])
             return c if c is not None and c.strip() else None
 
         if not (msg_start <= line < msg_end) or content(line) is None:
@@ -234,7 +234,7 @@ class Analysis:
         if any(t.startswith((" ", "\t")) for t in texts):
             return None
         is_last = all(content(i) is None for i in range(end, msg_end))
-        if is_last and all(fmt._TRAILER_RE.match(t) for t in texts):
+        if is_last and all(fmt.TRAILER_RE.match(t) for t in texts):
             return None
         return start, end
 
@@ -256,7 +256,7 @@ class Analysis:
         if self.repo is None:
             return out
         for block in self.result.blocks:
-            if not fmt._SHA_RE.match(block.sha):
+            if not fmt.SHA_RE.match(block.sha):
                 continue  # already reported as bad-sha
             if self.original(block) is None:
                 out.append(
@@ -358,7 +358,7 @@ class Analysis:
     def links(self) -> list[lsp.DocumentLink]:
         out = []
         for b in self.result.blocks:
-            if fmt._SHA_RE.match(b.sha) and (target := self.link_target(self.full_sha(b))):
+            if fmt.SHA_RE.match(b.sha) and (target := self.link_target(self.full_sha(b))):
                 url, tooltip = target
                 out.append(lsp.DocumentLink(range=self.sha_range(b), target=url, tooltip=tooltip))
         root = self.repo.root if self.repo else None

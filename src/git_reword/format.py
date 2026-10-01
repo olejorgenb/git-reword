@@ -48,12 +48,12 @@ _INFO_WIDTH = 12  # `AuthorDate: ` is the widest key, as in --pretty=fuller
 
 _COMMIT_RE = re.compile(r"^commit[ \t]+(?P<sha>\S+)[ \t]*$")
 # Full sha or an abbreviation; git accepts 4 hex digits as the shortest.
-_SHA_RE = re.compile(r"^[0-9a-f]{4,64}$")
+SHA_RE = re.compile(r"^[0-9a-f]{4,64}$")
 _INFO_RE = re.compile(r"^(?P<key>[A-Za-z][A-Za-z-]*):(?P<value>.*)$")
 # A comment to the grammar, a directive to the tool.
 _OPTIONS_RE = re.compile(r"^#[ \t]*git-reword-options:(?P<options>.*)$")
 # Message content that looks like a trailer; same shape as the grammar's trailer_key.
-_TRAILER_RE = re.compile(r"^[A-Za-z][A-Za-z0-9-]*:[ \t]")
+TRAILER_RE = re.compile(r"^[A-Za-z][A-Za-z0-9-]*:[ \t]")
 
 
 class Severity(Enum):
@@ -131,7 +131,7 @@ def cleanup(message: str) -> str:
     return "\n".join(out)
 
 
-def _strip_indent(line: str) -> str | None:
+def strip_indent(line: str) -> str | None:
     """Content of a message line, or None when not indented."""
     if line.startswith("    "):
         return line[4:]
@@ -145,7 +145,7 @@ def reflow(lines: list[str], width: int = WIDTH) -> list[str]:
     indented. Words are joined on single spaces; a word longer than `width`
     stays on its own line. Greedy on purpose: that is what people expect
     from a commit message, unlike textwrap's handling of long words."""
-    words = " ".join(_strip_indent(line) or line for line in lines).split()
+    words = " ".join(strip_indent(line) or line for line in lines).split()
     out: list[str] = []
     current: list[str] = []
     length = 0
@@ -224,7 +224,7 @@ def parse(text: str) -> ParseResult:
             close_block(lineno)
             sha = m.group("sha")
             col = m.start("sha")
-            if not _SHA_RE.match(sha):
+            if not SHA_RE.match(sha):
                 error(lineno, f"Not a sha: {sha}", "bad-sha", col=col, end_col=len(line))
             elif sha in seen:
                 error(
@@ -238,7 +238,7 @@ def parse(text: str) -> ParseResult:
             block = Block(sha=sha, line=lineno)
             continue
 
-        content = _strip_indent(line)
+        content = strip_indent(line)
         if content is not None:
             if block is None:
                 error(lineno, "Message line before any `commit` line", "orphan-line")
